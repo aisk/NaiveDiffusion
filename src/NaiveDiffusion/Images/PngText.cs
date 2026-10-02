@@ -69,7 +69,7 @@ public static class PngText
         (data[offset] << 24) | (data[offset + 1] << 16) |
         (data[offset + 2] << 8) | data[offset + 3];
 
-    private static void WriteBigEndian(byte[] target, int offset, uint value)
+    internal static void WriteBigEndian(byte[] target, int offset, uint value)
     {
         target[offset] = (byte)(value >> 24);
         target[offset + 1] = (byte)(value >> 16);
@@ -94,7 +94,7 @@ public static class PngText
         return table;
     }
 
-    private static uint Crc32(byte[] data, int offset, int count)
+    internal static uint Crc32(byte[] data, int offset, int count)
     {
         uint crc = 0xFFFFFFFFu;
         for (int i = offset; i < offset + count; i++)
