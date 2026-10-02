@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Vortice.DirectML is consumed as a ProjectReference, and its csproj marks the
+    DirectML.dll of every architecture (x86, x64, arm, arm64) as Content that
+    copies to the output directory. Those items flow transitively into every
+    project here as a four-architecture runtimes\ tree. NaiveDiffusion copies
+    the one DirectML.dll it needs to the output root instead, so drop the
+    transitive tree before anything is copied.
+    Match on TargetPath, not identity: the root copy and the win-x64 tree item
+    point at the same source file and a plain Remove would take both.
+  -->
+  <Target Name="DropTransitiveDirectMLRuntimes" AfterTargets="GetCopyToOutputDirectoryItems">
+    <ItemGroup>
+      <_TransitiveDirectMLRuntime Include="@(AllItemsFullPathWithTargetPath)"
+          Condition="'%(Filename)' != '' and $([System.String]::Copy('%(TargetPath)').StartsWith('runtimes\')) and $([System.String]::Copy('%(Filename)').StartsWith('DirectML'))" />
+      <AllItemsFullPathWithTargetPath Remove="@(_TransitiveDirectMLRuntime)" MatchOnMetadata="TargetPath" MatchOnMetadataOptions="PathLike" />
+      <_SourceItemsToCopyToOutputDirectory Remove="@(_TransitiveDirectMLRuntime)" MatchOnMetadata="TargetPath" MatchOnMetadataOptions="PathLike" />
+      <_SourceItemsToCopyToOutputDirectoryAlways Remove="@(_TransitiveDirectMLRuntime)" MatchOnMetadata="TargetPath" MatchOnMetadataOptions="PathLike" />
+      <_SourceItemsToCopyToOutputDirectoryIfDifferent Remove="@(_TransitiveDirectMLRuntime)" MatchOnMetadata="TargetPath" MatchOnMetadataOptions="PathLike" />
+      <_TransitiveDirectMLRuntime Remove="@(_TransitiveDirectMLRuntime)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="DropTransitiveDirectMLRuntimesFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_TransitiveDirectMLRuntime Include="@(ResolvedFileToPublish)"
+          Condition="'%(Filename)' != '' and $([System.String]::Copy('%(RelativePath)').StartsWith('runtimes\')) and $([System.String]::Copy('%(Filename)').StartsWith('DirectML'))" />
+      <ResolvedFileToPublish Remove="@(_TransitiveDirectMLRuntime)" MatchOnMetadata="RelativePath" MatchOnMetadataOptions="PathLike" />
+      <_TransitiveDirectMLRuntime Remove="@(_TransitiveDirectMLRuntime)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

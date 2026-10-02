@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NaiveDiffusion/NaiveDiffusion.csproj" />
+    <Project Path="src/NaiveDiffusion.Cli/NaiveDiffusion.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NaiveDiffusion.Tests/NaiveDiffusion.Tests.csproj" />
+  </Folder>
+</Solution>

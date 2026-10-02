@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>NaiveDiffusion</RootNamespace>
+    <Platforms>x64;ARM64</Platforms>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>NaiveDiffusion</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>An Long</Authors>
+    <Description>SDXL, Anima and Qwen-Image inference on DirectML, in plain C#.</Description>
+    <PackageTags>stable-diffusion;sdxl;directml;diffusion;safetensors</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+  <!-- A checkout of Vortice.Windows next to this repository: its main has
+       MultiheadAttention, Gelu, Softmax1, Dequantize, Swish and
+       MeanVarianceNormalization2, which the published 3.8.3 package does not. -->
+  <PropertyGroup>
+    <VorticeRoot Condition="'$(VorticeRoot)' == ''">..\..\..\Vortice.Windows\src\</VorticeRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(VorticeRoot)Vortice.DirectML\Vortice.DirectML.csproj" />
+    <ProjectReference Include="$(VorticeRoot)Vortice.Direct3D12\Vortice.Direct3D12.csproj" />
+    <ProjectReference Include="$(VorticeRoot)Vortice.DXGI\Vortice.DXGI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NaiveDiffusion.Tests" />
+  </ItemGroup>
+
+  <!-- One DirectML per architecture, at the output root where the Vortice
+       resolver's fallback loads it. The checkout's own four-architecture
+       runtimes\** Content is dropped by Directory.Build.targets so it does
+       not end up in every output. -->
+  <PropertyGroup>
+    <DirectMLArch>x64</DirectMLArch>
+    <DirectMLArch Condition="'$(Platform)' == 'ARM64'">arm64</DirectMLArch>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(VorticeRoot)Vortice.DirectML\runtimes\win-$(DirectMLArch)\native\DirectML.dll"
+             Link="DirectML.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(VorticeRoot)Vortice.DirectML\runtimes\win-$(DirectMLArch)\native\DirectML.Debug.dll"
+             Link="DirectML.Debug.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- OpenAI CLIP's standard BPE vocabulary, identical for both SDXL
+         tokenizers; the pad token is the only difference and lives in code. -->
+    <EmbeddedResource Include="Assets\ClipTokenizer\vocab.json" LogicalName="ClipTokenizer.vocab.json" />
+    <EmbeddedResource Include="Assets\ClipTokenizer\merges.txt" LogicalName="ClipTokenizer.merges.txt" />
+    <!-- Qwen2's byte-level BPE table, which Qwen3-0.6B reads Anima's prompt
+         with, and T5's unigram model, whose ids Anima's adapter embeds. -->
+    <EmbeddedResource Include="Assets\Qwen2Tokenizer\vocab.json" LogicalName="Qwen2Tokenizer.vocab.json" />
+    <EmbeddedResource Include="Assets\Qwen2Tokenizer\merges.txt" LogicalName="Qwen2Tokenizer.merges.txt" />
+    <EmbeddedResource Include="Assets\T5Tokenizer\tokenizer.json" LogicalName="T5Tokenizer.tokenizer.json" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+[Bb]in/
+[Oo]bj/
+.vs/
+.idea/
+*.user
+*.suo
+artifacts/
+*.log
+*.binlog
+[Tt]est[Rr]esult*/
+*.trx
+*.nupkg
+*.snupkg
+
+# what the CLI writes
+*.png
+*.csv
+*.bin
+
+*.safetensors
+
+.claude/
