@@ -20,3 +20,4 @@ artifacts/
 *.safetensors
 
 .claude/
+!assets/*.png

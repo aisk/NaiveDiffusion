@@ -1,31 +1,67 @@
 # NaiveDiffusion
 
+<img src="assets/example.png" align="right" width="280" alt="A picture made with Qwen-Image 2.1">
+
 Text-to-image on DirectML, written in C#. No Python and no ONNX. It reads the `.safetensors` files ComfyUI and A1111 use, builds the DirectML graphs itself and runs them on whatever GPU Direct3D 12 can see.
 
-## Supported models
+It runs three families of models.
 
-| Model | Files |
-| --- | --- |
-| SDXL (Illustrious, NoobAI, Pony, v-pred included) | one checkpoint, optional VAE |
-| Anima | DiT + Qwen3-0.6B text encoder + Qwen-Image VAE |
-| Qwen-Image 2.1 | DiT + Qwen3-VL-8B text encoder + 2.1 VAE |
+- **SDXL**, Illustrious, NoobAI, Pony and v-pred included, from one checkpoint with an optional VAE
+- **Anima**, from its DiT, the Qwen3-0.6B text encoder and the Qwen-Image VAE
+- **Qwen-Image 2.1**, from its DiT, the Qwen3-VL-8B text encoder and the 2.1 VAE
 
 There is also image-to-image, LoRA (SDXL and Anima), tiled VAE, int8 weights, and streaming the weights from system memory when they don't fit on the card.
 
 Windows only, .NET 10.
 
+<br clear="right">
+
 ## Usage
+
+The picture above came out of this, with Qwen-Image 2.1.
 
 ```csharp
 using NaiveDiffusion.Dml;
 using NaiveDiffusion.Models;
 using NaiveDiffusion.Pipeline;
+using NaiveDiffusion.Sampling;
 
 using var device = new DmlDevice();
 
 var image = ModelFamilies.Generate(device, new GenerationOptions
 {
-    CheckpointPath = @"D:\models\illustriousXL.safetensors",
+    CheckpointPath = "qwen_image_2.1_bf16.safetensors",
+    Components = new Dictionary<string, string>
+    {
+        ["text_encoder"] = "qwen3vl_8b_bf16.safetensors",
+        ["vae"] = "qwen_image_2.1_vae_bf16.safetensors",
+    },
+    Prompt = "Beautiful Asian Frieren cosplayer in a modern data center, photorealistic, " +
+             "wearing a safety helmet and holding an open laptop while troubleshooting servers, " +
+             "silver-white hair, pointed elf ears, Frieren-inspired outfit, " +
+             "Chinese douyin-style cosplay makeup, porcelain skin, defined eyeliner, aegyo-sal, " +
+             "long eyelashes, glowing server racks, cinematic lighting, shallow depth of field, " +
+             "realistic skin and fabric, professional photography, high detail.",
+    Width = 1024,
+    Height = 1344,
+    Steps = 25,
+    Guidance = 1,
+    Schedule = ScheduleKind.Linspace,
+    Seed = 525712554,
+    DenoiserAutoBudget = true,
+});
+
+image.SavePng("frieren.png");
+```
+
+The result is packed RGB pixels in `image.Rgb24`. `ToPng()` gives the encoded bytes, `ToBgra32()` and `ToRgba32()` give the layouts WriteableBitmap, WPF, System.Drawing and most image libraries take.
+
+Qwen-Image and Anima keep the text encoder and the VAE in files of their own, named through `Components`. An SDXL checkpoint has everything in one file.
+
+```csharp
+var image = ModelFamilies.Generate(device, new GenerationOptions
+{
+    CheckpointPath = "illustriousXL.safetensors",
     Prompt = "1girl, hatsune miku, city street, night",
     Negative = "lowres, bad anatomy",
     Width = 832,
@@ -33,25 +69,6 @@ var image = ModelFamilies.Generate(device, new GenerationOptions
     Steps = 20,
     Seed = 1,
 });
-
-// image.Rgb24 holds image.Width * image.Height packed RGB pixels
-```
-
-Models with more than one file take the rest through `Components`.
-
-```csharp
-var options = new GenerationOptions
-{
-    CheckpointPath = "anima-base-v1.0.safetensors",
-    Components = new Dictionary<string, string>
-    {
-        ["text_encoder"] = "qwen_3_06b_base.safetensors",
-        ["vae"] = "qwen_image_vae.safetensors",
-    },
-    Schedule = ScheduleKind.Linspace,
-    Guidance = 4,
-    Prompt = "...",
-};
 ```
 
 ## Command line
