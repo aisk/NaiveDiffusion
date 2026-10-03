@@ -58,7 +58,12 @@ public sealed class SdxlFamily : IModelFamily
 
     public bool SupportsLoras => true;
 
-    public bool SupportsHalfCompute => false;
+    public bool SupportsWeights(WeightStorage weights) => true;
+
+    /// <summary>The UNet's graphs are half precision from end to end.</summary>
+    public bool SupportsCompute(ComputePrecision compute) => compute == ComputePrecision.Float16;
+
+    public ComputePrecision DefaultCompute => ComputePrecision.Float16;
 
     /// <summary>Tags with weights, the A1111 way: the two CLIP towers see
     /// the prompt as runs of tokens, each with the weight of its group.</summary>
@@ -81,7 +86,7 @@ public sealed class SdxlFamily : IModelFamily
     /// weights: each dispatch writes the dequantized copy of its matrices
     /// into the scratch.</summary>
     public ulong DenoiserScratchBytes(GenerationOptions options) => DenoiserBudget.ScaleScratch(
-        (options.DenoiserInt8Weights ? 768UL : 512UL) << 20, options.Height, options.Width);
+        (options.DenoiserWeights == WeightStorage.Int8 ? 768UL : 512UL) << 20, options.Height, options.Width);
 
     public int? NearbyEfficientHeight(int height, int width, int step, int reach, int minimum,
         int maximum) => UNetModel.NearbyAligned(height, width, step, reach, minimum, maximum);
@@ -136,7 +141,7 @@ public sealed class SdxlFamily : IModelFamily
         cancellation.ThrowIfCancellationRequested();
         var unet = new UNetModel(device, parameters, options.Height, options.Width,
             ((SdxlConditioning)conditioning).Tokens, residentBudget: residentBudget,
-            int8Weights: options.DenoiserInt8Weights);
+            int8Weights: options.DenoiserWeights == WeightStorage.Int8);
         parameters.Dispose();
         return unet;
     }

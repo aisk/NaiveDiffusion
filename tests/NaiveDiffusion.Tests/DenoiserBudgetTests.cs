@@ -17,7 +17,7 @@ public class DenoiserBudgetTests
     {
         var square = new GenerationOptions { Width = 1024, Height = 1024 };
         Assert.That(SdxlFamily.Instance.DenoiserScratchBytes(square), Is.EqualTo(512 * Mib));
-        Assert.That(SdxlFamily.Instance.DenoiserScratchBytes(square with { DenoiserInt8Weights = true }),
+        Assert.That(SdxlFamily.Instance.DenoiserScratchBytes(square with { DenoiserWeights = WeightStorage.Int8 }),
             Is.EqualTo(768 * Mib));
         Assert.That(AnimaFamily.Instance.DenoiserScratchBytes(square), Is.EqualTo(2048 * Mib));
         Assert.That(AnimaFamily.Instance.DenoiserScratchBytes(square with { Width = 2048 }),

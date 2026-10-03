@@ -124,7 +124,7 @@ public sealed class QwenImageConditioner : IConditioner
     {
         int scale = Wan22Vae.Latent.ScaleFactor;
         return new QwenImageConditioning(contexts, width, options.Height / scale, options.Width / scale,
-            options.DenoiserHalfCompute ? QwenImageDit.HalfComputeAlignment : 1);
+            options.DenoiserCompute == ComputePrecision.Float16 ? QwenImageDit.HalfComputeAlignment : 1);
     }
 
     private sealed class Encoder(QwenImageTextEncoder encoder) : IPromptEncoder

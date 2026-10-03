@@ -57,11 +57,21 @@ public interface IModelFamily
     /// <summary>Whether LoRAs can be folded into this family's weights.</summary>
     bool SupportsLoras { get; }
 
-    /// <summary>Whether <see cref="GenerationOptions.DenoiserHalfCompute"/>
-    /// is a choice here: the transformers compute their blocks at single
-    /// precision and can be asked for half; SDXL's UNet computes at half
-    /// precision as it is.</summary>
-    bool SupportsHalfCompute { get; }
+    /// <summary>Whether this family's diffusion model can keep its weights
+    /// as <paramref name="weights"/>
+    /// (<see cref="GenerationOptions.DenoiserWeights"/>).</summary>
+    bool SupportsWeights(WeightStorage weights);
+
+    /// <summary>Whether this family's diffusion model can compute at
+    /// <paramref name="compute"/>
+    /// (<see cref="GenerationOptions.DenoiserCompute"/>): the transformers
+    /// have both, SDXL's UNet half precision only. A front end offers the
+    /// choice where more than one is supported.</summary>
+    bool SupportsCompute(ComputePrecision compute);
+
+    /// <summary>The precision a front end starts at and a command line left
+    /// without one gets.</summary>
+    ComputePrecision DefaultCompute { get; }
 
     /// <summary>How this family's encoder reads the prompt — as tags with
     /// weights, or as sentences taken as written — so a prompt box can show

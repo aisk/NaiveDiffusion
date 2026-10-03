@@ -23,10 +23,8 @@ internal static class DenoiseCommand
     public static readonly string[] ValueOptions = new[]
     {
         "--checkpoint", "--size", "--width", "--height", "--sigma", "--latent", "--seed", "--dump",
-        "--unet-vram", "--context", "--lora",
+        "--denoiser-vram", "--weights", "--compute", "--context", "--lora",
     }.Concat(CommandLine.ComponentOptions()).ToArray();
-
-    public static readonly string[] FlagOptions = { "--int8", "--fp16-compute" };
 
     /// <summary>What one pass is: the family, the options the pipeline has
     /// passed for the parts that will run, the level, and the conditioning
@@ -62,7 +60,7 @@ internal static class DenoiseCommand
             CheckpointPath = line.Checkpoint(),
             Components = line.Components(family, parts),
         };
-        options = line.DenoiserMemory(options, allowAuto: false);
+        options = line.DenoiserMemory(options, family, allowAuto: false);
         options = line.Loras(options);
         float sigma = line.Float("--sigma", 0.7f);
         if (!(sigma > 0))

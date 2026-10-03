@@ -16,12 +16,12 @@ internal static class GenerateCommand
     {
         "--checkpoint", "--size", "--width", "--height", "--negative",
         "--steps", "--seed", "--count", "--guidance", "--sampler", "--schedule", "--out",
-        "--unet-vram", "--image", "--strength", "--lora", "--lora-dir", "--clip-skip",
-        "--step", "--step-seeds",
+        "--denoiser-vram", "--weights", "--compute", "--image", "--strength", "--lora",
+        "--lora-dir", "--clip-skip", "--step", "--step-seeds",
     }.Concat(SnippetOptions.ValueOptions)
      .Concat(CommandLine.ComponentOptions()).ToArray();
 
-    public static readonly string[] FlagOptions = { "--whole-vae", "--int8", "--fp16-compute" };
+    public static readonly string[] FlagOptions = { "--whole-vae" };
 
     public static int Run(DmlDevice device, CommandLine line)
     {
@@ -97,7 +97,7 @@ internal static class GenerateCommand
             ClipSkip = line.ClipSkip(family),
             TileVae = !line.Flag("--whole-vae"),
         };
-        options = line.DenoiserMemory(options);
+        options = line.DenoiserMemory(options, family);
         options = Reference(line, options);
         options = line.Loras(options);
 

@@ -83,22 +83,25 @@ public sealed record GenerationOptions
     /// figure comes out above the weights' size and nothing changes.</summary>
     public bool DenoiserAutoBudget { get; init; }
 
-    /// <summary>Store the diffusion model's large weight matrices as
-    /// block-quantized int8 instead of fp16: about half the weight memory,
-    /// with the arithmetic still at the model's precision. The images
-    /// change slightly; the quantization error is a few times fp16's own
-    /// rounding.</summary>
-    public bool DenoiserInt8Weights { get; init; }
+    /// <summary>What the diffusion model's large weight matrices are kept
+    /// as in video memory. <see cref="WeightStorage.Int8"/> quantizes them
+    /// in blocks as they are read: about half the weight memory, with the
+    /// arithmetic still at <see cref="DenoiserCompute"/>. The images change
+    /// slightly; the quantization error is a few times fp16's own rounding.
+    /// A family that cannot store them so
+    /// (<see cref="IModelFamily.SupportsWeights"/>) refuses the run.</summary>
+    public WeightStorage DenoiserWeights { get; init; } = WeightStorage.Float16;
 
-    /// <summary>Compute the transformer's blocks at half precision instead
-    /// of single: the products and the attention, with the residual stream,
-    /// the norms and the rotary positions still wide. Half the arithmetic
-    /// and half the activation traffic, at an error DirectML's half-precision
-    /// operators make that has already put a hatching over Anima's images
-    /// but has not on Qwen-Image's, so it is a choice
-    /// and off by default. SDXL's UNet computes at half precision as it is
-    /// and does not offer it (<see cref="IModelFamily.SupportsHalfCompute"/>).</summary>
-    public bool DenoiserHalfCompute { get; init; }
+    /// <summary>What the diffusion model's blocks compute at. For a
+    /// transformer <see cref="ComputePrecision.Float16"/> narrows the
+    /// products and the attention and leaves the residual stream, the norms
+    /// and the rotary positions wide: half the arithmetic and half the
+    /// activation traffic, with fine detail coming out slightly differently
+    /// from <see cref="ComputePrecision.Float32"/>, which is what the
+    /// reference implementations compute at. SDXL's UNet computes at half
+    /// precision throughout and has no other. A family refuses a precision
+    /// it does not have (<see cref="IModelFamily.SupportsCompute"/>).</summary>
+    public ComputePrecision DenoiserCompute { get; init; } = ComputePrecision.Float16;
 
     /// <summary>An image to start from instead of noise, at exactly
     /// <see cref="Width"/> by <see cref="Height"/> — the caller crops and
@@ -114,6 +117,41 @@ public sealed record GenerationOptions
     /// reference survive but its composition; around 0.3 keeps it and
     /// changes the rendering. Ignored without a reference.</summary>
     public float Strength { get; init; } = 0.65f;
+}
+
+/// <summary>What a diffusion model's large weight matrices are stored as
+/// once loaded, whatever width the file has them at.</summary>
+public enum WeightStorage
+{
+    Float16,
+    /// <summary>Block-quantized 8-bit integers with a scale per block,
+    /// dequantized in the graph.</summary>
+    Int8,
+}
+
+/// <summary>The floating-point width a diffusion model's blocks compute at.</summary>
+public enum ComputePrecision
+{
+    Float16,
+    Float32,
+}
+
+public static class Precisions
+{
+    /// <summary>The short name a command line takes and a message prints.</summary>
+    public static string Label(this WeightStorage weights) => weights switch
+    {
+        WeightStorage.Float16 => "fp16",
+        WeightStorage.Int8 => "int8",
+        _ => weights.ToString(),
+    };
+
+    public static string Label(this ComputePrecision compute) => compute switch
+    {
+        ComputePrecision.Float16 => "fp16",
+        ComputePrecision.Float32 => "fp32",
+        _ => compute.ToString(),
+    };
 }
 
 /// <summary>The stages of a run, in the order they happen; what a

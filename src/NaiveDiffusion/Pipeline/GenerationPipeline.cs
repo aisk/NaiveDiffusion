@@ -175,7 +175,8 @@ public sealed class GenerationPipeline
         }
 
         // The options a family may not have: clip skip where the text side
-        // has one layer to read, LoRAs where nothing merges them.
+        // has one layer to read, LoRAs where nothing merges them, a weight
+        // storage or a compute precision its model is not built for.
         if (_family.MaxClipSkip == 0)
         {
             if (options.ClipSkip != GenerationOptions.DefaultClipSkip)
@@ -193,10 +194,19 @@ public sealed class GenerationPipeline
         {
             throw new ArgumentException($"LoRAs are not supported for {_family.Name}");
         }
-        if (!_family.SupportsHalfCompute && options.DenoiserHalfCompute)
+        if (!_family.SupportsWeights(options.DenoiserWeights))
         {
             throw new ArgumentException(
-                $"half-precision compute is not a choice for {_family.Name}: its model computes at half precision already");
+                $"{_family.Name} cannot store its weights as {options.DenoiserWeights.Label()}; it takes " +
+                string.Join(" or ", Enum.GetValues<WeightStorage>()
+                    .Where(_family.SupportsWeights).Select(weights => weights.Label())));
+        }
+        if (!_family.SupportsCompute(options.DenoiserCompute))
+        {
+            throw new ArgumentException(
+                $"{_family.Name} cannot compute at {options.DenoiserCompute.Label()}; it computes at " +
+                string.Join(" or ", Enum.GetValues<ComputePrecision>()
+                    .Where(_family.SupportsCompute).Select(compute => compute.Label())));
         }
 
         // A tag names a file, and only the caller knows where files are: it

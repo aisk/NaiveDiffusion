@@ -63,7 +63,7 @@ public sealed class AnimaDit : ChainDenoiser
 
     /// <summary>What the blocks compute at: <see cref="Wide"/> unless the
     /// half-precision figure was asked for
-    /// (<see cref="Pipeline.GenerationOptions.DenoiserHalfCompute"/>), and
+    /// (<see cref="Pipeline.GenerationOptions.DenoiserCompute"/>), and
     /// then the products and the attention run narrow while the residual
     /// stream, the norms, the rotary positions, the embeddings and the final
     /// layer stay wide.</summary>

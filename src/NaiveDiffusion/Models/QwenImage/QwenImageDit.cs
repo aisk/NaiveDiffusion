@@ -39,7 +39,7 @@ namespace NaiveDiffusion.Models.QwenImage;
 /// gives: DirectML's half-precision
 /// attention drifts enough over a run to leave a hatching over the image.
 /// The blocks can be asked to compute at half precision instead
-/// (<see cref="Pipeline.GenerationOptions.DenoiserHalfCompute"/>), for the
+/// (<see cref="Pipeline.GenerationOptions.DenoiserCompute"/>), for the
 /// timing: then the products and the attention run narrow while the
 /// residual stream, the norms, the rotary positions, the embeddings and the
 /// final layer stay wide.

@@ -73,7 +73,11 @@ public sealed class AnimaFamily : IModelFamily
     /// (<see cref="AnimaLoras"/>).</summary>
     public bool SupportsLoras => true;
 
-    public bool SupportsHalfCompute => true;
+    public bool SupportsWeights(WeightStorage weights) => true;
+
+    public bool SupportsCompute(ComputePrecision compute) => true;
+
+    public ComputePrecision DefaultCompute => ComputePrecision.Float16;
 
     /// <summary>Tags: the model is trained on Danbooru tags, and its encoder
     /// takes the prompt as weighted segments (<see cref="AnimaPrompt"/>).</summary>
@@ -165,8 +169,9 @@ public sealed class AnimaFamily : IModelFamily
         using LazyWeights parameters = weights.LoadDit(options.Loras);
         cancellation.ThrowIfCancellationRequested();
         var dit = new AnimaDit(device, parameters, options.Height, options.Width,
-            ((AnimaConditioning)conditioning).Rows, residentBudget, options.DenoiserInt8Weights,
-            options.DenoiserHalfCompute);
+            ((AnimaConditioning)conditioning).Rows, residentBudget,
+            options.DenoiserWeights == WeightStorage.Int8,
+            options.DenoiserCompute == ComputePrecision.Float16);
         parameters.Dispose();
         return dit;
     }

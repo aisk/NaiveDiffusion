@@ -37,8 +37,8 @@ internal static class Commands
             EncodeCommand.ValueOptions, Array.Empty<string>(), false,
             (_, line) => EncodeCommand.Run(line)),
         // Reads the weights off the mapping on the CPU; nothing is built.
-        new Command("inspect", "inspect [--int8] --checkpoint file",
-            InspectCommand.ValueOptions, InspectCommand.FlagOptions, false,
+        new Command("inspect", "inspect [--weights fp16|int8] --checkpoint file",
+            InspectCommand.ValueOptions, Array.Empty<string>(), false,
             (_, line) => InspectCommand.Run(line)),
         new Command("roundtrip",
             "roundtrip <image> [--size n] [--tile-encode] [--tile-decode] [--dump-latent file] [--dump-decoded file] " +
@@ -47,17 +47,18 @@ internal static class Commands
             (device, line) => RoundtripCommand.Run(device!, line)),
         new Command("denoise",
             "denoise <prompt> [--size n | --width n --height n] [--sigma s] [--latent file] " +
-            "[--seed n] [--dump file] [--context file] [--lora file[:weight] ...] [--unet-vram MiB] " +
-            "[--int8] [--fp16-compute] " +
+            "[--seed n] [--dump file] [--context file] [--lora file[:weight] ...] [--denoiser-vram MiB] " +
+            "[--weights fp16|int8] [--compute fp32|fp16] " +
             CommandLine.ComponentUsage() + " --checkpoint file",
-            DenoiseCommand.ValueOptions, DenoiseCommand.FlagOptions, true,
+            DenoiseCommand.ValueOptions, Array.Empty<string>(), true,
             (device, line) => DenoiseCommand.Run(device!, line)),
         new Command("generate",
             "generate <prompt> [--negative text] [--size n | --width n --height n] " +
             "[--steps n] [--seed n] [--count n] " +
             "[--guidance g] [--sampler euler|euler-a|dpmpp-2m|dpmpp-2m-sde] " +
             "[--schedule leading|linspace|karras|exponential|ays] [--clip-skip n] [--out file] " +
-            CommandLine.ComponentUsage() + " [--unet-vram MiB|auto] [--int8] [--fp16-compute] [--whole-vae] " +
+            CommandLine.ComponentUsage() + " [--denoiser-vram MiB|auto] [--weights fp16|int8] " +
+            "[--compute fp32|fp16] [--whole-vae] " +
             "[--image file --strength 0..1] [--lora file[:weight] ...] [--lora-dir folder ...] " +
             "[--set name=text ...] [--snippet-dir folder ...] [--step text ...] " +
             "[--step-seeds same|continue] --checkpoint file",

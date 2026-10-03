@@ -208,12 +208,24 @@ public class GenerationPipelineTests
         Assert.That(() => Sdxl.Prepare(SdxlOptions() with { ClipSkip = 12, Schedule = ScheduleKind.AlignYourSteps }),
             Throws.Nothing);
 
-        // Half-precision blocks are a transformer's choice; the UNet
-        // computes at half precision as it is.
-        Assert.That(() => Sdxl.Prepare(SdxlOptions() with { DenoiserHalfCompute = true }),
-            Throws.ArgumentException.With.Message.Contains("half-precision"));
-        Assert.That(() => Anima.Prepare(AnimaOptions() with { DenoiserHalfCompute = true }), Throws.Nothing);
-        Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { DenoiserHalfCompute = true }),
+        // The compute precision is a transformer's choice; the UNet
+        // computes at half precision and nothing else. Every family
+        // stores its weights either way.
+        Assert.That(() => Sdxl.Prepare(SdxlOptions() with { DenoiserCompute = ComputePrecision.Float32 }),
+            Throws.ArgumentException.With.Message.Contains("fp32").And.Message.Contains("computes at fp16"));
+        Assert.That(() => Sdxl.Prepare(SdxlOptions() with { DenoiserCompute = ComputePrecision.Float16 }),
+            Throws.Nothing);
+        foreach (ComputePrecision compute in Enum.GetValues<ComputePrecision>())
+        {
+            Assert.That(() => Anima.Prepare(AnimaOptions() with { DenoiserCompute = compute }), Throws.Nothing);
+            Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { DenoiserCompute = compute }),
+                Throws.Nothing);
+        }
+        Assert.That(() => Sdxl.Prepare(SdxlOptions() with { DenoiserWeights = WeightStorage.Int8 }),
+            Throws.Nothing);
+        Assert.That(() => Anima.Prepare(AnimaOptions() with { DenoiserWeights = WeightStorage.Int8 }),
+            Throws.Nothing);
+        Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { DenoiserWeights = WeightStorage.Int8 }),
             Throws.Nothing);
     }
 
@@ -283,9 +295,14 @@ public class GenerationPipelineTests
         Assert.That(AnimaFamily.Instance.SupportsLoras);
         Assert.That(AnimaFamily.Instance.SizeAlignment, Is.EqualTo(16));
         Assert.That(QwenImageFamily.Instance.SupportsLoras);
-        Assert.That(SdxlFamily.Instance.SupportsHalfCompute, Is.False);
-        Assert.That(AnimaFamily.Instance.SupportsHalfCompute);
-        Assert.That(QwenImageFamily.Instance.SupportsHalfCompute);
+        Assert.That(SdxlFamily.Instance.SupportsCompute(ComputePrecision.Float32), Is.False);
+        Assert.That(AnimaFamily.Instance.SupportsCompute(ComputePrecision.Float32));
+        Assert.That(QwenImageFamily.Instance.SupportsCompute(ComputePrecision.Float32));
+        foreach (IModelFamily family in ModelFamilies.All)
+        {
+            Assert.That(family.SupportsCompute(family.DefaultCompute), family.Name);
+            Assert.That(family.SupportsWeights(new GenerationOptions().DenoiserWeights), family.Name);
+        }
         Assert.That(QwenImageFamily.Instance.SizeAlignment, Is.EqualTo(16));
         Assert.That(QwenImageFamily.Instance.DefaultSchedule, Is.EqualTo(ScheduleKind.Linspace));
         // Tags for the two whose encoders cut and weight the prompt, sentences

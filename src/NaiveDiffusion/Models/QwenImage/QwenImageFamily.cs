@@ -71,7 +71,11 @@ public sealed class QwenImageFamily : IModelFamily
     /// names ComfyUI reads them by (<see cref="QwenImageLoras"/>).</summary>
     public bool SupportsLoras => true;
 
-    public bool SupportsHalfCompute => true;
+    public bool SupportsWeights(WeightStorage weights) => true;
+
+    public bool SupportsCompute(ComputePrecision compute) => true;
+
+    public ComputePrecision DefaultCompute => ComputePrecision.Float16;
 
     /// <summary>Sentences: the prompt goes into Qwen3-VL's template as
     /// written, with no splitting and no weights, and the model is prompted
@@ -170,8 +174,9 @@ public sealed class QwenImageFamily : IModelFamily
         using LazyWeights parameters = weights.LoadDit(options.Loras);
         cancellation.ThrowIfCancellationRequested();
         var dit = new QwenImageDit(device, parameters, options.Height, options.Width,
-            ((QwenImageConditioning)conditioning).Rows, residentBudget, options.DenoiserInt8Weights,
-            options.DenoiserHalfCompute);
+            ((QwenImageConditioning)conditioning).Rows, residentBudget,
+            options.DenoiserWeights == WeightStorage.Int8,
+            options.DenoiserCompute == ComputePrecision.Float16);
         parameters.Dispose();
         return dit;
     }

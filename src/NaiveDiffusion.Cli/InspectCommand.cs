@@ -12,14 +12,13 @@ namespace NaiveDiffusion.Cli;
 /// only inside float16's normal range and float32 never survives exactly.
 /// A weight past the range comes out as infinity, zero or a subnormal
 /// with no error anywhere, and the image is only worse; this is the
-/// command to run once when a new model is taken on. With --int8 it also
+/// command to run once when a new model is taken on. With --weights int8 it also
 /// measures what the block quantization would leave. The text encoders
 /// are read at their stored width on the CPU and the VAEs are widened,
 /// so neither loses anything and neither is read. Opens no device.</summary>
 internal static class InspectCommand
 {
-    public static readonly string[] ValueOptions = { "--checkpoint" };
-    public static readonly string[] FlagOptions = { "--int8" };
+    public static readonly string[] ValueOptions = { "--checkpoint", "--weights" };
 
     /// <summary>How many of the worst tensors a warning names.</summary>
     private const int Worst = 5;
@@ -35,7 +34,12 @@ internal static class InspectCommand
     {
         IModelFamily family = line.Family(CheckpointInspector.CheckpointParts.Unet);
         string path = line.Checkpoint(CheckpointInspector.CheckpointParts.Unet);
-        bool int8 = line.Flag("--int8");
+        WeightStorage storage = line.Weights();
+        if (!family.SupportsWeights(storage))
+        {
+            CommandLine.Fail($"--weights {storage.Label()}: {family.Name} cannot store its weights so");
+        }
+        bool int8 = storage == WeightStorage.Int8;
 
         var clock = Stopwatch.StartNew();
         var losses = new List<(string Name, NarrowingLoss Loss)>();

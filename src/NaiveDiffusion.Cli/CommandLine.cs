@@ -249,21 +249,37 @@ internal sealed class CommandLine
         return clipSkip;
     }
 
-    /// <summary>--unet-vram: how much video memory the diffusion model's
+    /// <summary>--weights: what the diffusion model's large matrices are
+    /// stored as, fp16 when left out. Whether the family can is the
+    /// pipeline's to say.</summary>
+    public WeightStorage Weights() => Value("--weights") switch
+    {
+        "fp16" or null => WeightStorage.Float16,
+        "int8" => WeightStorage.Int8,
+        string other => Fail<WeightStorage>($"--weights {other}: fp16 or int8"),
+    };
+
+    /// <summary>--denoiser-vram: how much video memory the diffusion model's
     /// weights may keep between steps, in MiB, or "auto" to take what the
     /// card has free when the model is built. Left out, everything stays
-    /// resident. --int8 stores the large matrices block-quantized;
-    /// --fp16-compute runs a transformer's blocks at half precision, for
-    /// the timing (see
-    /// <see cref="GenerationOptions.DenoiserHalfCompute"/>).</summary>
-    public GenerationOptions DenoiserMemory(GenerationOptions options, bool allowAuto = true)
+    /// resident. --weights is <see cref="Weights"/>; --compute is the
+    /// precision the model's blocks run at, the family's own when left out
+    /// (see <see cref="GenerationOptions.DenoiserCompute"/>).</summary>
+    public GenerationOptions DenoiserMemory(GenerationOptions options, IModelFamily family,
+        bool allowAuto = true)
     {
         options = options with
         {
-            DenoiserInt8Weights = Flag("--int8"),
-            DenoiserHalfCompute = Flag("--fp16-compute"),
+            DenoiserWeights = Weights(),
+            DenoiserCompute = Value("--compute") switch
+            {
+                null => family.DefaultCompute,
+                "fp32" => ComputePrecision.Float32,
+                "fp16" => ComputePrecision.Float16,
+                string other => Fail<ComputePrecision>($"--compute {other}: fp32 or fp16"),
+            },
         };
-        string? text = Value("--unet-vram");
+        string? text = Value("--denoiser-vram");
         if (text is null)
         {
             return options;
@@ -274,7 +290,7 @@ internal sealed class CommandLine
         }
         return ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out ulong mib)
             ? options with { DenoiserResidentBytes = mib << 20 }
-            : Fail<GenerationOptions>($"--unet-vram {text}: MiB" + (allowAuto ? " or auto" : ""));
+            : Fail<GenerationOptions>($"--denoiser-vram {text}: MiB" + (allowAuto ? " or auto" : ""));
     }
 
     /// <summary>--lora file[:weight], any number of times: LoRAs to fold in,

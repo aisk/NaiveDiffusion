@@ -49,6 +49,7 @@ var image = ModelFamilies.Generate(device, new GenerationOptions
     Schedule = ScheduleKind.Linspace,
     Seed = 525712554,
     DenoiserAutoBudget = true,
+    DenoiserCompute = ComputePrecision.Float32,
 });
 
 image.SavePng("frieren.png");
@@ -95,15 +96,15 @@ Measured on a Radeon RX 6800 (16 GB) with an 8-core Ryzen, at 1024×1024. VRAM i
 | Model | Settings | Per step | Whole run | VRAM |
 | --- | --- | --- | --- | --- |
 | SDXL | 20 steps, CFG | 2.4 s | 58 s | 6.1 GiB |
-| Anima | 20 steps, guidance 4 | 7.0 s | 150 s | 5.7 GiB |
-| Anima | same, `--fp16-compute` | 6.0 s | 130 s | 5.7 GiB |
-| Anima turbo | 8 steps, guidance 1 | 3.5 s | 40 s | 5.7 GiB |
-| Qwen-Image 2.1 | 25 steps, guidance 1 | 12.6 s | 410 s | 12.4 GiB |
-| Qwen-Image 2.1 | same, `--fp16-compute` | 10.2 s | 349 s | 11.1 GiB |
-| Qwen-Image 2.1 | same, `--fp16-compute --int8` | 10.4 s | 355 s | 8.5 GiB |
-| Qwen-Image 2.1 with the Turbo8 LoRA | 8 steps, guidance 1, `--fp16-compute` | 10.4 s | 176 s | 11.1 GiB |
+| Anima | 20 steps, guidance 4 | 6.0 s | 130 s | 5.7 GiB |
+| Anima | same, `--compute fp32` | 7.0 s | 150 s | 5.7 GiB |
+| Anima turbo | 8 steps, guidance 1, `--compute fp32` | 3.5 s | 40 s | 5.7 GiB |
+| Qwen-Image 2.1 | 25 steps, guidance 1 | 10.2 s | 349 s | 11.1 GiB |
+| Qwen-Image 2.1 | same, `--compute fp32` | 12.6 s | 410 s | 12.4 GiB |
+| Qwen-Image 2.1 | same, `--weights int8` | 10.4 s | 355 s | 8.5 GiB |
+| Qwen-Image 2.1 with the Turbo8 LoRA | 8 steps, guidance 1 | 10.4 s | 176 s | 11.1 GiB |
 
-Guidance 1 runs the model once per step, anything above runs it twice. The Qwen-Image rows use `--unet-vram auto`, which streams the part of its 13.5 GiB of weights that doesn't fit. Decoding a Qwen-Image picture takes 8.5 GiB on its own, the other two stay under 2 GiB.
+Guidance 1 runs the model once per step, anything above runs it twice. The two transformers compute their blocks at half precision unless `--compute fp32` asks for single, which is what ComfyUI computes at and costs about a fifth more time. SDXL's UNet is half precision throughout. The Qwen-Image rows use `--denoiser-vram auto`, which streams the part of its 13.5 GiB of weights that doesn't fit. Decoding a Qwen-Image picture takes 8.5 GiB on its own, the other two stay under 2 GiB.
 
 On a smaller card the SDXL UNet can keep part of its weights in system memory and stream them every step, or store them as int8. Streaming gives the same image bit for bit, int8 changes fine detail.
 
@@ -111,9 +112,9 @@ On a smaller card the SDXL UNet can keep part of its weights in system memory an
 | --- | --- | --- |
 | everything in VRAM | 2.3 s | 6.1 GiB |
 | 1.7 GiB of the weights in VRAM | 2.8 s | 3.6 GiB |
-| `--unet-vram 0` | 3.3 s | 1.6 GiB |
-| `--int8` | 2.6 s | 3.4 GiB |
-| `--int8 --unet-vram 0` | 2.9 s | 1.4 GiB |
+| `--denoiser-vram 0` | 3.3 s | 1.6 GiB |
+| `--weights int8` | 2.6 s | 3.4 GiB |
+| `--weights int8 --denoiser-vram 0` | 2.9 s | 1.4 GiB |
 
 ## Building
 

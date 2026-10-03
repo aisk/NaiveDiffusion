@@ -17,7 +17,7 @@ namespace NaiveDiffusion.Tests;
 public class CommandLineTests
 {
     private static readonly string[] Values = { "--steps", "--sampler", "--checkpoint" };
-    private static readonly string[] Flags = { "--int8" };
+    private static readonly string[] Flags = { "--whole-vae" };
 
     private static CommandLine Parse(params string[] args) =>
         CommandLine.Parse(new[] { "generate" }.Concat(args).ToArray(), Values, Flags);
@@ -29,7 +29,7 @@ public class CommandLineTests
             Throws.TypeOf<UsageException>().With.Message.Contains("--sampelr"));
         Assert.That(() => Parse("--steps"),
             Throws.TypeOf<UsageException>().With.Message.Contains("needs a value"));
-        Assert.That(() => Parse("--steps", "--int8"),
+        Assert.That(() => Parse("--steps", "--whole-vae"),
             Throws.TypeOf<UsageException>().With.Message.Contains("needs a value"));
         Assert.That(() => Parse("--steps", "abc").Int("--steps", 20),
             Throws.TypeOf<UsageException>().With.Message.Contains("whole number"));
@@ -40,10 +40,10 @@ public class CommandLineTests
     [Test]
     public void WhatWasGivenIsReadAsGiven()
     {
-        CommandLine line = Parse("a prompt", "--steps", "8", "--int8", "--sampler", "euler-a");
+        CommandLine line = Parse("a prompt", "--steps", "8", "--whole-vae", "--sampler", "euler-a");
         Assert.That(line.Argument, Is.EqualTo("a prompt"));
         Assert.That(line.Int("--steps", 20), Is.EqualTo(8));
-        Assert.That(line.Flag("--int8"));
+        Assert.That(line.Flag("--whole-vae"));
         Assert.That(line.Value("--sampler"), Is.EqualTo("euler-a"));
         Assert.That(line.Int("--seed", 3), Is.EqualTo(3), "an option left out is its fallback");
     }
@@ -61,22 +61,64 @@ public class CommandLineTests
     [Test]
     public void TheDenoiserMemoryOptionsTakeMebibytesOrAuto()
     {
-        string[] options = { "--unet-vram" };
-        string[] flags = { "--int8", "--fp16-compute" };
         var blank = new GenerationOptions();
-        Assert.That(CommandLine.Parse(new[] { "x", "--unet-vram", "2000", "--int8" }, options, flags)
-                .DenoiserMemory(blank),
-            Is.EqualTo(blank with { DenoiserResidentBytes = 2000UL << 20, DenoiserInt8Weights = true }));
-        Assert.That(CommandLine.Parse(new[] { "x", "--fp16-compute" }, options, flags).DenoiserMemory(blank),
-            Is.EqualTo(blank with { DenoiserHalfCompute = true }));
-        Assert.That(CommandLine.Parse(new[] { "x", "--unet-vram", "auto" }, options, flags).DenoiserMemory(blank),
+        IModelFamily anima = AnimaFamily.Instance;
+        Assert.That(Parse("--denoiser-vram", "2000", "--weights", "int8").DenoiserMemory(blank, anima),
+            Is.EqualTo(blank with { DenoiserResidentBytes = 2000UL << 20, DenoiserWeights = WeightStorage.Int8 }));
+        Assert.That(Parse("--denoiser-vram", "auto").DenoiserMemory(blank, anima),
             Is.EqualTo(blank with { DenoiserAutoBudget = true }));
-        Assert.That(() => CommandLine.Parse(new[] { "x", "--unet-vram", "auto" }, options, flags)
-                .DenoiserMemory(blank, allowAuto: false),
+        Assert.That(() => Parse("--denoiser-vram", "auto").DenoiserMemory(blank, anima, allowAuto: false),
             Throws.TypeOf<UsageException>());
-        Assert.That(() => CommandLine.Parse(new[] { "x", "--unet-vram", "lots" }, options, flags)
-                .DenoiserMemory(blank),
+        Assert.That(() => Parse("--denoiser-vram", "lots").DenoiserMemory(blank, anima),
             Throws.TypeOf<UsageException>().With.Message.Contains("MiB"));
+
+        static CommandLine Parse(params string[] args) => CommandLine.Parse(
+            new[] { "x" }.Concat(args).ToArray(),
+            new[] { "--denoiser-vram", "--weights", "--compute" }, Array.Empty<string>());
+    }
+
+    /// <summary>The weight storage and the compute precision are named, and
+    /// a name that is not one is refused; left out, the precision is the
+    /// family's own. A precision the family does not have is the
+    /// pipeline's to refuse, as a usage error.</summary>
+    [Test]
+    public void TheWeightStorageAndTheComputePrecisionAreNamed()
+    {
+        var blank = new GenerationOptions();
+        foreach (IModelFamily family in ModelFamilies.All)
+        {
+            GenerationOptions unset = Parse().DenoiserMemory(blank, family);
+            Assert.That(unset.DenoiserCompute, Is.EqualTo(family.DefaultCompute), family.Name);
+            Assert.That(unset.DenoiserWeights, Is.EqualTo(WeightStorage.Float16), family.Name);
+        }
+        IModelFamily anima = AnimaFamily.Instance;
+        Assert.That(Parse("--compute", "fp32").DenoiserMemory(blank, anima).DenoiserCompute,
+            Is.EqualTo(ComputePrecision.Float32));
+        Assert.That(Parse("--compute", "fp16").DenoiserMemory(blank, anima).DenoiserCompute,
+            Is.EqualTo(ComputePrecision.Float16));
+        Assert.That(Parse("--weights", "fp16").DenoiserMemory(blank, anima).DenoiserWeights,
+            Is.EqualTo(WeightStorage.Float16));
+        Assert.That(() => Parse("--compute", "fp8").DenoiserMemory(blank, anima),
+            Throws.TypeOf<UsageException>().With.Message.Contains("fp32 or fp16"));
+        Assert.That(() => Parse("--weights", "int4").DenoiserMemory(blank, anima),
+            Throws.TypeOf<UsageException>().With.Message.Contains("fp16 or int8"));
+
+        using var folder = new TempFolder();
+        string sdxl = new FakeSafetensors(folder).Write("sdxl", FakeSafetensors.SdxlCheckpoint());
+        Command generate = Commands.Find("generate")!;
+        Assert.That(() => Read("--compute", "fp32"),
+            Throws.TypeOf<UsageException>().With.Message.Contains("fp32"));
+        Assert.That(Read("--compute", "fp16", "--weights", "int8").Runs[0].Options.DenoiserWeights,
+            Is.EqualTo(WeightStorage.Int8));
+
+        (IModelFamily Family, int Count, IReadOnlyList<(StepRun Step, GenerationOptions Options)> Runs) Read(
+            params string[] more) => GenerateCommand.Read(CommandLine.Parse(
+                new[] { "generate", "1girl", "--checkpoint", sdxl }.Concat(more).ToArray(),
+                Commands.ValueOptionsOf(generate), generate.FlagOptions));
+
+        static CommandLine Parse(params string[] args) => CommandLine.Parse(
+            new[] { "x" }.Concat(args).ToArray(),
+            new[] { "--weights", "--compute" }, Array.Empty<string>());
     }
 
     [Test]
@@ -222,11 +264,13 @@ public class CommandLineTests
             Is.EqualTo(new[] { "text_encoder" }), "and the VAE never does");
 
         (IModelFamily family, GenerationOptions options, _, _, Conditioning? context) =
-            Read(qwenImage, "--context", rows);
+            Read(qwenImage, "--context", rows, "--compute", "fp32");
         Assert.That(family, Is.SameAs(QwenImageFamily.Instance));
         Assert.That(options.Components, Is.Empty);
         Assert.That(context!.Branches, Is.EqualTo(1));
         Assert.That(context.Specialization, Is.EqualTo("2"), "two rows of 4096");
+        Assert.That(Read(qwenImage, "--context", rows).Context!.Specialization, Is.EqualTo("60"),
+            "at the family's half precision the sequence is padded to a multiple of 64");
 
         Assert.That(() => Read(sdxl, "--context", rows),
             Throws.TypeOf<UsageException>().With.Message.Contains("--context"));

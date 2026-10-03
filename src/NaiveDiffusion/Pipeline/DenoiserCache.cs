@@ -34,11 +34,11 @@ public sealed class DenoiserCache : IDisposable
     /// path, because a path can be overwritten in place with a different
     /// model. The LoRAs are in the same terms, with their weights: they are
     /// folded into the weights the graphs hold, so adding one, dropping one
-    /// or moving its slider is a different model. Half-precision compute
+    /// or moving its slider is a different model. The compute precision
     /// builds different graphs outright, so it is part of the key too.</summary>
     public readonly record struct Key(string Family, string CheckpointPath,
         long CheckpointLength, long CheckpointStamp, int Height, int Width,
-        string Specialization, int Batch, bool Int8Weights, bool HalfCompute, string Loras)
+        string Specialization, int Batch, WeightStorage Weights, ComputePrecision Compute, string Loras)
     {
         public static Key For(string family, GenerationOptions options,
             Conditioning conditioning, int batch = 1)
@@ -46,8 +46,8 @@ public sealed class DenoiserCache : IDisposable
             var file = new FileInfo(options.CheckpointPath);
             return new Key(family, Path.GetFullPath(options.CheckpointPath), file.Length,
                 file.LastWriteTimeUtc.Ticks, options.Height, options.Width,
-                conditioning.Specialization, batch, options.DenoiserInt8Weights,
-                options.DenoiserHalfCompute, LoraSpec.Stamp(options.Loras));
+                conditioning.Specialization, batch, options.DenoiserWeights,
+                options.DenoiserCompute, LoraSpec.Stamp(options.Loras));
         }
     }
 

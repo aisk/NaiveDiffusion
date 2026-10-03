@@ -191,7 +191,8 @@ public class TransformerInputsTests
             Throws.ArgumentException.With.Message.Contains("rows"));
 
         Assert.That(QwenImageFamily.Instance.Conditioner.TakesContextRows);
-        Conditioning qwen = QwenImageFamily.Instance.Conditioner.FromContextRows(options, new float[2 * 4096]);
+        Conditioning qwen = QwenImageFamily.Instance.Conditioner.FromContextRows(
+            options with { DenoiserCompute = ComputePrecision.Float32 }, new float[2 * 4096]);
         Assert.That(qwen.Branches, Is.EqualTo(1));
         Assert.That(qwen.Specialization, Is.EqualTo("2"));
         Assert.That(qwen.Branch(0)[QwenImageConditioning.KeyLengthName].ToInt32s(), Is.EqualTo(new[] { 4 + 2 }));
