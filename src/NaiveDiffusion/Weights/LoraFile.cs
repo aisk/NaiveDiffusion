@@ -63,8 +63,19 @@ public sealed record LoraSpec(string Path, float Weight)
 /// the merge asks for it by.</summary>
 /// <param name="Name">The tower's name as the merge is asked for it.</param>
 /// <param name="Description">How an error names it: "UNet", "CLIP-L".</param>
+/// <param name="OtherPeftPrefixes">The other prefixes a dotted name may sit
+/// under, for a model different trainers address differently; an empty one
+/// for a model whose layers are also named with no prefix at all.</param>
 public sealed record LoraTower(string Name, string Description, string KohyaPrefix,
-    string PeftPrefix);
+    string PeftPrefix, params string[] OtherPeftPrefixes)
+{
+    internal IEnumerable<string> PeftPrefixes => OtherPeftPrefixes.Prepend(PeftPrefix);
+}
+
+/// <summary>A name a LoRA has for part of a weight: <paramref name="Count"/>
+/// of its rows from <paramref name="First"/> on, for a model that stores as
+/// one matrix what the LoRA addresses as several.</summary>
+public readonly record struct LoraRows(string Name, int First, int Count);
 
 /// <summary>How one family's LoRAs are laid out: which towers they may
 /// change, and which prefixes mark a file made for another architecture —
@@ -87,15 +98,24 @@ public sealed class LoraLayout
         Towers = towers;
         RefusedKohyaPrefixes = refusedKohyaPrefixes;
         _byKohya = towers.ToDictionary(tower => tower.KohyaPrefix, StringComparer.Ordinal);
-        _byPeft = towers.ToDictionary(tower => tower.PeftPrefix, StringComparer.Ordinal);
+        _byPeft = towers.SelectMany(tower => tower.PeftPrefixes.Select(prefix => (prefix, tower)))
+            .ToDictionary(pair => pair.prefix, pair => pair.tower, StringComparer.Ordinal);
         _byName = towers.ToDictionary(tower => tower.Name, tower => tower.Description,
             StringComparer.Ordinal);
         string kohya = string.Join("|", towers.Select(tower => Regex.Escape(tower.KohyaPrefix))
             .Concat(refusedKohyaPrefixes.Keys.Select(Regex.Escape)));
-        string peft = string.Join("|", towers.Select(tower => Regex.Escape(tower.PeftPrefix)));
+        string peft = string.Join("|", _byPeft.Keys.Where(prefix => prefix.Length > 0).Select(Regex.Escape));
+        // A tower named with no prefix takes whatever dotted name sits under
+        // none of the others.
+        string prefix = _byPeft.ContainsKey("") ? $@"(?:({peft})\.)?" : $@"({peft})\.";
         KohyaPattern = new Regex(
             $@"^lora_({kohya})_(.+)\.(lora_down\.weight|lora_up\.weight|alpha)$", RegexOptions.Compiled);
-        PeftPattern = new Regex($@"^({peft})\.(.+)\.(lora_A\.weight|lora_B\.weight|alpha)$",
+        // The dotted names end the way PEFT ends them, the way kohya does —
+        // which is how ComfyUI saves its own — or with PEFT's adapter name
+        // left in, as DiffSynth leaves it.
+        PeftPattern = new Regex(
+            $@"^{prefix}(.+)\.(lora_A\.weight|lora_B\.weight|lora_A\.default\.weight|" +
+            @"lora_B\.default\.weight|lora_down\.weight|lora_up\.weight|alpha)$",
             RegexOptions.Compiled);
     }
 
@@ -213,8 +233,8 @@ public sealed class LoraFile : IDisposable
                     match.Groups[2].Value.Replace('.', '_'));
                 part = match.Groups[3].Value switch
                 {
-                    "lora_A.weight" => "down",
-                    "lora_B.weight" => "up",
+                    "lora_A.weight" or "lora_A.default.weight" or "lora_down.weight" => "down",
+                    "lora_B.weight" or "lora_B.default.weight" or "lora_up.weight" => "up",
                     _ => "alpha",
                 };
             }
@@ -298,11 +318,13 @@ public static class LoraMerge
     /// trained against a different architecture, and applying nothing while
     /// claiming to have applied it is the one outcome worse than an error.
     /// A file some of whose layers are found is applied as far as it goes,
-    /// as the reference implementations do.</summary>
+    /// as the reference implementations do. <paramref name="parts"/> gives
+    /// the names a LoRA has for some of a weight's rows.</summary>
     public static void Apply(Dictionary<string, HostTensor> tensors, LoraLayout layout,
-        string tower, IReadOnlyList<LoraSpec> loras, Func<string, IEnumerable<string>>? aliases = null)
+        string tower, IReadOnlyList<LoraSpec> loras, Func<string, IEnumerable<string>>? aliases = null,
+        Func<string, IEnumerable<LoraRows>>? parts = null)
     {
-        using LoraPatchSet patches = LoraPatchSet.Prepare(tensors, layout, tower, loras, aliases);
+        using LoraPatchSet patches = LoraPatchSet.Prepare(tensors, layout, tower, loras, aliases, parts);
         foreach (string key in patches.Keys.ToArray())
         {
             tensors[key] = patches.Apply(key, tensors[key]);
@@ -312,35 +334,43 @@ public static class LoraMerge
     internal static string ModuleName(string key) =>
         key[..^".weight".Length].Replace('.', '_');
 
+    /// <summary>Whether a pair is the shape of the rows it is to change. A
+    /// linear weight is [out, in]; a convolution's is [out, in, kh, kw], and
+    /// its down matrix carries the same trailing axes. Either way a row is
+    /// everything past the first axis, and the up matrix is [out, rank] with,
+    /// for a convolution, two trailing axes of one.</summary>
+    internal static void Check(HostTensor weight, LoraFile.Module module, int rowCount, string key)
+    {
+        int rank = module.Down.Shape[0];
+        long columns = weight.ElementCount / weight.Shape[0];
+        if (module.Down.ElementCount != rank * columns
+            || module.Up.Shape[0] != rowCount || module.Up.ElementCount != (long)rowCount * rank)
+        {
+            throw new InvalidDataException(
+                $"the LoRA's {key} is [{string.Join(", ", module.Up.Shape)}] x " +
+                $"[{string.Join(", ", module.Down.Shape)}] but the model's is " +
+                $"[{string.Join(", ", weight.Shape)}]; the LoRA was trained against a " +
+                "different model");
+        }
+    }
+
     /// <summary>The weight plus every delta, row by row: each output row is
     /// widened, takes rank scaled rows of each down matrix, and is narrowed
     /// back. Nothing the size of the weight exists in float32 at any point,
-    /// and the inner loop is one vector multiply-add per (row, rank).</summary>
+    /// and the inner loop is one vector multiply-add per (row, rank). A delta
+    /// for part of the weight starts at its first row.</summary>
     internal static HostTensor Merge(HostTensor weight,
-        List<(LoraFile.Module Module, float Scale)> patches, string key)
+        List<(LoraFile.Module Module, float Scale, int FirstRow)> patches)
     {
-        // A linear weight is [out, in]; a convolution's is [out, in, kh, kw],
-        // and its down matrix carries the same trailing axes. Either way a row
-        // is everything past the first axis, and the up matrix is [out, rank]
-        // with, for a convolution, two trailing axes of one.
         int rows = weight.Shape[0];
         int columns = checked((int)(weight.ElementCount / rows));
 
-        var factors = new (float[] Down, float[] Up, int Rank, float Scale)[patches.Count];
+        var factors = new (float[] Down, float[] Up, int Rank, float Scale, int First, int Count)[patches.Count];
         for (int i = 0; i < patches.Count; i++)
         {
-            (LoraFile.Module module, float scale) = patches[i];
-            int rank = module.Down.Shape[0];
-            if (module.Down.ElementCount != (long)rank * columns
-                || module.Up.Shape[0] != rows || module.Up.ElementCount != (long)rows * rank)
-            {
-                throw new InvalidDataException(
-                    $"the LoRA's {key} is [{string.Join(", ", module.Up.Shape)}] x " +
-                    $"[{string.Join(", ", module.Down.Shape)}] but the model's is " +
-                    $"[{string.Join(", ", weight.Shape)}]; the LoRA was trained against a " +
-                    "different model");
-            }
-            factors[i] = (module.Down.ToFloats(), module.Up.ToFloats(), rank, scale);
+            (LoraFile.Module module, float scale, int first) = patches[i];
+            factors[i] = (module.Down.ToFloats(), module.Up.ToFloats(), module.Down.Shape[0], scale,
+                first, module.Up.Shape[0]);
         }
 
         HostDataType type = weight.DataType == HostDataType.Float32
@@ -352,11 +382,15 @@ public static class LoraMerge
         Parallel.For(0, rows, () => new float[columns], (row, _, scratch) =>
         {
             weight.WidenRow(row, columns, scratch);
-            foreach ((float[] down, float[] up, int rank, float scale) in factors)
+            foreach ((float[] down, float[] up, int rank, float scale, int first, int count) in factors)
             {
+                if (row < first || row >= first + count)
+                {
+                    continue;
+                }
                 for (int r = 0; r < rank; r++)
                 {
-                    float factor = scale * up[row * rank + r];
+                    float factor = scale * up[(row - first) * rank + r];
                     if (factor == 0)
                     {
                         continue;
@@ -387,10 +421,10 @@ public static class LoraMerge
 /// merged graph by graph instead of all at once.</summary>
 public sealed class LoraPatchSet : IDisposable
 {
-    private readonly Dictionary<string, List<(LoraFile.Module Module, float Scale)>> _patches;
+    private readonly Dictionary<string, List<(LoraFile.Module Module, float Scale, int FirstRow)>> _patches;
     private readonly List<LoraFile> _files;
 
-    private LoraPatchSet(Dictionary<string, List<(LoraFile.Module, float)>> patches, List<LoraFile> files)
+    private LoraPatchSet(Dictionary<string, List<(LoraFile.Module, float, int)>> patches, List<LoraFile> files)
     {
         _patches = patches;
         _files = files;
@@ -398,32 +432,40 @@ public sealed class LoraPatchSet : IDisposable
 
     /// <summary>Open the files and match their layers against
     /// <paramref name="tensors"/>, as <see cref="LoraMerge.Apply"/> describes:
-    /// by kohya name, and by whatever other name <paramref name="aliases"/>
-    /// gives a key. A file none of whose layers are found is refused here,
-    /// before anything has been merged.</summary>
+    /// by kohya name, by whatever other name <paramref name="aliases"/>
+    /// gives a key, and by the names <paramref name="parts"/> gives some of
+    /// its rows. A file none of whose layers are found is refused here,
+    /// before anything has been merged, and so is a pair that is not the
+    /// shape of the weight it names.</summary>
     public static LoraPatchSet Prepare(IReadOnlyDictionary<string, HostTensor> tensors,
         LoraLayout layout, string tower,
-        IReadOnlyList<LoraSpec> loras, Func<string, IEnumerable<string>>? aliases = null)
+        IReadOnlyList<LoraSpec> loras, Func<string, IEnumerable<string>>? aliases = null,
+        Func<string, IEnumerable<LoraRows>>? parts = null)
     {
         // Every name a weight answers to, so a file is matched with one lookup
         // per layer rather than a scan of the model per layer.
-        var byModule = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (string key in tensors.Keys)
+        var byModule = new Dictionary<string, (string Key, int First, int Count)>(StringComparer.Ordinal);
+        foreach ((string key, HostTensor tensor) in tensors)
         {
-            if (!key.EndsWith(".weight", StringComparison.Ordinal))
+            if (!key.EndsWith(".weight", StringComparison.Ordinal) || tensor.Shape.Length == 0)
             {
                 continue;
             }
-            byModule[LoraMerge.ModuleName(key)] = key;
+            int rows = tensor.Shape[0];
+            byModule[LoraMerge.ModuleName(key)] = (key, 0, rows);
             foreach (string alias in aliases?.Invoke(key) ?? Array.Empty<string>())
             {
-                byModule[LoraMerge.ModuleName(alias)] = key;
+                byModule[LoraMerge.ModuleName(alias)] = (key, 0, rows);
+            }
+            foreach (LoraRows part in parts?.Invoke(key) ?? Array.Empty<LoraRows>())
+            {
+                byModule[LoraMerge.ModuleName(part.Name)] = (key, part.First, part.Count);
             }
         }
 
         // Gathered per weight before anything is computed: a weight two files
         // both change is widened once, takes both deltas, and is narrowed once.
-        var patches = new Dictionary<string, List<(LoraFile.Module, float)>>();
+        var patches = new Dictionary<string, List<(LoraFile.Module, float, int)>>();
         var files = new List<LoraFile>(loras.Count);
         try
         {
@@ -440,18 +482,19 @@ public sealed class LoraPatchSet : IDisposable
                 int found = 0;
                 foreach ((string module, LoraFile.Module pair) in modules)
                 {
-                    if (!byModule.TryGetValue(module, out string? key))
+                    if (!byModule.TryGetValue(module, out (string Key, int First, int Count) target))
                     {
                         continue;
                     }
                     found++;
+                    LoraMerge.Check(tensors[target.Key], pair, target.Count, target.Key);
                     int rank = pair.Down.Shape[0];
                     float scale = lora.Weight * (pair.Alpha ?? rank) / rank;
-                    if (!patches.TryGetValue(key, out List<(LoraFile.Module, float)>? list))
+                    if (!patches.TryGetValue(target.Key, out List<(LoraFile.Module, float, int)>? list))
                     {
-                        patches[key] = list = new List<(LoraFile.Module, float)>();
+                        patches[target.Key] = list = new List<(LoraFile.Module, float, int)>();
                     }
-                    list.Add((pair, scale));
+                    list.Add((pair, scale, target.First));
                 }
                 if (modules.Count > 0 && found == 0)
                 {
@@ -481,8 +524,8 @@ public sealed class LoraPatchSet : IDisposable
     /// <summary>A fresh copy of <paramref name="weight"/> with the deltas for
     /// <paramref name="key"/> added, or the weight itself when there are none.</summary>
     public HostTensor Apply(string key, HostTensor weight) =>
-        _patches.TryGetValue(key, out List<(LoraFile.Module Module, float Scale)>? list)
-            ? LoraMerge.Merge(weight, list, key)
+        _patches.TryGetValue(key, out List<(LoraFile.Module Module, float Scale, int FirstRow)>? list)
+            ? LoraMerge.Merge(weight, list)
             : weight;
 
     public void Dispose()

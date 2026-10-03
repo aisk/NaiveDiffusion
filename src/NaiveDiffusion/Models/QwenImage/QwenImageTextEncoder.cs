@@ -1,5 +1,6 @@
 using NaiveDiffusion.Text;
 using NaiveDiffusion.Text.Qwen;
+using NaiveDiffusion.Weights;
 
 namespace NaiveDiffusion.Models.QwenImage;
 
@@ -18,12 +19,13 @@ public sealed class QwenImageTextEncoder : IDisposable
     private readonly TowerWeights _textEncoder;
     private readonly Qwen2Tokenizer _tokenizer = Qwen2Tokenizer.Shared;
 
-    public QwenImageTextEncoder(string checkpointPath, string textEncoderPath)
+    public QwenImageTextEncoder(string checkpointPath, string textEncoderPath,
+        IReadOnlyList<LoraSpec>? loras = null)
     {
         _weights = new QwenImageWeights(checkpointPath, textEncoderPath);
         try
         {
-            _textEncoder = new TowerWeights(_weights.LoadTextEncoder());
+            _textEncoder = new TowerWeights(_weights.LoadTextEncoder(loras));
         }
         catch
         {

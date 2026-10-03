@@ -15,9 +15,9 @@ namespace NaiveDiffusion.Models.QwenImage;
 /// on one frame, and rectified flow with a shift set from the image's
 /// size. Three files, the text encoder and the VAE declared as required
 /// parts. Text to image only, for now: the reference images an edit
-/// splices into the sequence, the alpha the VAE also makes, LoRAs and the
-/// text's cache across steps are not done yet, and what is not done is
-/// said through the capabilities so the pipeline refuses it.</summary>
+/// splices into the sequence, the alpha the VAE also makes and the text's
+/// cache across steps are not done yet, and what is not done is said
+/// through the capabilities so the pipeline refuses it.</summary>
 public sealed class QwenImageFamily : IModelFamily
 {
     /// <summary>Qwen3-VL-8B, as Comfy-Org repacks it
@@ -67,10 +67,9 @@ public sealed class QwenImageFamily : IModelFamily
     /// was trained.</summary>
     public int MaxClipSkip => 0;
 
-    /// <summary>Not yet: the merge takes a <see cref="Weights.LoraLayout"/>
-    /// and none has been written for this transformer's names — the fused
-    /// gate_up matrix takes the two halves of a LoRA.</summary>
-    public bool SupportsLoras => false;
+    /// <summary>Folded into the transformer and the text encoder under the
+    /// names ComfyUI reads them by (<see cref="QwenImageLoras"/>).</summary>
+    public bool SupportsLoras => true;
 
     public bool SupportsHalfCompute => true;
 
@@ -168,7 +167,7 @@ public sealed class QwenImageFamily : IModelFamily
         Conditioning conditioning, ulong? residentBudget, CancellationToken cancellation)
     {
         using var weights = new QwenImageWeights(options.CheckpointPath);
-        using LazyWeights parameters = weights.LoadDit();
+        using LazyWeights parameters = weights.LoadDit(options.Loras);
         cancellation.ThrowIfCancellationRequested();
         var dit = new QwenImageDit(device, parameters, options.Height, options.Width,
             ((QwenImageConditioning)conditioning).Rows, residentBudget, options.DenoiserInt8Weights,

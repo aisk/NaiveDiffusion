@@ -150,7 +150,7 @@ public class GenerationPipelineTests
     /// pipeline asks only that the file be a LoRA, for every family that
     /// takes one.</summary>
     [Test]
-    public void AnimaTakesALoraAndRefusesACheckpointGivenAsOne()
+    public void AFamilyTakesALoraAndRefusesACheckpointGivenAsOne()
     {
         string lora = _files.Write("anima_lora", FakeSafetensors.AnimaLora(),
             new Dictionary<string, string> { ["modelspec.architecture"] = "anima/lora" });
@@ -158,6 +158,8 @@ public class GenerationPipelineTests
             Throws.Nothing);
         Assert.That(() => Anima.Prepare(AnimaOptions() with { Loras = new[] { new LoraSpec(_anima, 1f) } }),
             Throws.ArgumentException.With.Message.Contains("not a LoRA"));
+        Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { Loras = new[] { new LoraSpec(lora, 0.8f) } }),
+            Throws.Nothing);
     }
 
     [Test]
@@ -171,10 +173,6 @@ public class GenerationPipelineTests
             Throws.ArgumentException.With.Message.Contains("16"));
         Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { ClipSkip = 1 }),
             Throws.ArgumentException.With.Message.Contains("clip skip"));
-        Assert.That(() => QwenImage.Prepare(QwenImageOptions() with
-            {
-                Loras = new[] { new LoraSpec(_files.Write("lora", FakeSafetensors.SdxlLora()), 1f) },
-            }), Throws.ArgumentException.With.Message.Contains("LoRAs are not supported"));
         Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { Schedule = ScheduleKind.AlignYourSteps }),
             Throws.ArgumentException.With.Message.Contains("Align"));
         Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { Height = 1000 }),
@@ -284,7 +282,7 @@ public class GenerationPipelineTests
         Assert.That(SdxlFamily.Instance.SupportsLoras);
         Assert.That(AnimaFamily.Instance.SupportsLoras);
         Assert.That(AnimaFamily.Instance.SizeAlignment, Is.EqualTo(16));
-        Assert.That(QwenImageFamily.Instance.SupportsLoras, Is.False);
+        Assert.That(QwenImageFamily.Instance.SupportsLoras);
         Assert.That(SdxlFamily.Instance.SupportsHalfCompute, Is.False);
         Assert.That(AnimaFamily.Instance.SupportsHalfCompute);
         Assert.That(QwenImageFamily.Instance.SupportsHalfCompute);

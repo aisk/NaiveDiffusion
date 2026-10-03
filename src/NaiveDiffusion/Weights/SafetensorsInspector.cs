@@ -32,12 +32,15 @@ public static class SafetensorsInspector
         {
             return true;
         }
-        // The kohya names and the PEFT ones; a LoRA is only ever the pair.
+        // The kohya names and the PEFT ones, with or without PEFT's adapter
+        // name; a LoRA is only ever the pair.
         return AnyKey(file, key =>
             key.Contains(".lora_down.weight", StringComparison.Ordinal)
             || key.Contains(".lora_up.weight", StringComparison.Ordinal)
             || key.Contains(".lora_A.weight", StringComparison.Ordinal)
             || key.Contains(".lora_B.weight", StringComparison.Ordinal)
+            || key.Contains(".lora_A.default.weight", StringComparison.Ordinal)
+            || key.Contains(".lora_B.default.weight", StringComparison.Ordinal)
             || key.StartsWith("lora_unet_", StringComparison.Ordinal)
             || key.StartsWith("lora_te", StringComparison.Ordinal));
     }

@@ -97,7 +97,8 @@ public sealed class QwenImageConditioner : IConditioner
     public IPromptEncoder Open(GenerationOptions options) =>
         new Encoder(new QwenImageTextEncoder(options.CheckpointPath,
             options.ComponentPath(QwenImageFamily.TextEncoderComponent.Id)
-            ?? throw new ArgumentException("Qwen-Image needs its text encoder file")));
+            ?? throw new ArgumentException("Qwen-Image needs its text encoder file"),
+            options.Loras));
 
     public bool TakesContextRows => true;
 

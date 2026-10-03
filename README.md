@@ -10,7 +10,7 @@ It runs three families of models.
 - **Anima**, from its DiT, the Qwen3-0.6B text encoder and the Qwen-Image VAE
 - **Qwen-Image 2.1**, from its DiT, the Qwen3-VL-8B text encoder and the 2.1 VAE
 
-There is also image-to-image, LoRA (SDXL and Anima), tiled VAE, int8 weights, and streaming the weights from system memory when they don't fit on the card.
+There is also image-to-image, LoRA, tiled VAE, int8 weights, and streaming the weights from system memory when they don't fit on the card.
 
 Windows only, .NET 10.
 
@@ -71,12 +71,19 @@ var image = ModelFamilies.Generate(device, new GenerationOptions
 });
 ```
 
+A LoRA is folded into the weights before they are uploaded, at any strength, and several can be stacked. All three families take them, under the names kohya, ai-toolkit, diffusers, DiffSynth and ComfyUI write. LoHa, LoKr and DoRA are refused.
+
+```csharp
+Loras = new[] { new LoraSpec("turbo8_lora.safetensors", 1f) },
+```
+
 ## Command line
 
 ```
 cd src/NaiveDiffusion.Cli
 dotnet run -c Release -- devices
 dotnet run -c Release -- generate "1girl, hatsune miku" --size 1024 --steps 20 --seed 1 --checkpoint model.safetensors
+dotnet run -c Release -- generate "1girl, hatsune miku" --lora style.safetensors:0.8 --checkpoint model.safetensors
 ```
 
 Run it without arguments for the full list of commands. `smoke` checks the graph layers against a CPU reference and needs no model.
@@ -94,6 +101,7 @@ Measured on a Radeon RX 6800 (16 GB) with an 8-core Ryzen, at 1024×1024. VRAM i
 | Qwen-Image 2.1 | 25 steps, guidance 1 | 12.6 s | 410 s | 12.4 GiB |
 | Qwen-Image 2.1 | same, `--fp16-compute` | 10.2 s | 349 s | 11.1 GiB |
 | Qwen-Image 2.1 | same, `--fp16-compute --int8` | 10.4 s | 355 s | 8.5 GiB |
+| Qwen-Image 2.1 with the Turbo8 LoRA | 8 steps, guidance 1, `--fp16-compute` | 10.4 s | 176 s | 11.1 GiB |
 
 Guidance 1 runs the model once per step, anything above runs it twice. The Qwen-Image rows use `--unet-vram auto`, which streams the part of its 13.5 GiB of weights that doesn't fit. Decoding a Qwen-Image picture takes 8.5 GiB on its own, the other two stay under 2 GiB.
 
