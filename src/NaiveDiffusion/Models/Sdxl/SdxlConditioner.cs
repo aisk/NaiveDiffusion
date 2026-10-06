@@ -48,6 +48,33 @@ public sealed class SdxlConditioner : IConditioner
     public IPromptEncoder Open(GenerationOptions options) =>
         new Encoder(new SdxlTextEncoders(options.CheckpointPath, options.Loras, options.ClipSkip));
 
+    /// <summary>A prompt over 75 tokens is encoded in several chunks laid
+    /// end to end. Both prompts cross-attend against the same UNet, so the
+    /// shorter one is padded out with empty chunks to the longer's length.</summary>
+    public IReadOnlyList<PromptRequest> Requests(GenerationOptions options, int branches)
+    {
+        string[] prompts = Conditioners.Prompts(options, branches);
+        int chunks = prompts.Max(SdxlTextEncoders.ChunkCount);
+        return prompts.Select(prompt => new PromptRequest(prompt, chunks)).ToArray();
+    }
+
+    public Conditioning Condition(GenerationOptions options, IReadOnlyList<float[][]> encoded)
+    {
+        int tokens = encoded[0][0].Length / UNetModel.ContextWidth;
+
+        // SDXL conditions on the resolution it is pretending to have been
+        // cropped from as well as on the prompt.
+        var resolution = (options.Height, options.Width);
+        var contexts = new HostTensor[encoded.Count];
+        var addInputs = new HostTensor[encoded.Count];
+        for (int i = 0; i < encoded.Count; i++)
+        {
+            contexts[i] = HostTensor.FromFloats(encoded[i][0], 1, 1, tokens, UNetModel.ContextWidth);
+            addInputs[i] = UNetModel.AddConditioning(encoded[i][1], resolution, (0, 0), resolution);
+        }
+        return new SdxlConditioning(contexts, addInputs, tokens);
+    }
+
     /// <summary>The UNet reads a context and a pooled add-vector per
     /// branch, not one sequence; there is no file of rows to stand in.</summary>
     public bool TakesContextRows => false;
@@ -57,29 +84,10 @@ public sealed class SdxlConditioner : IConditioner
 
     private sealed class Encoder(SdxlTextEncoders encoders) : IPromptEncoder
     {
-        public Conditioning Encode(GenerationOptions options, int branches)
+        public float[][] Encode(PromptRequest request)
         {
-            // A prompt over 75 tokens is encoded in several chunks laid end to end.
-            // Both prompts cross-attend against the same UNet, so the shorter one is
-            // padded out with empty chunks to the longer's length.
-            string[] prompts = branches > 1
-                ? new[] { options.Negative, options.Prompt }
-                : new[] { options.Prompt };
-            int chunks = prompts.Max(encoders.ChunkCount);
-            int tokens = chunks * ClipTextEncoder.MaxTokens;
-
-            // SDXL conditions on the resolution it is pretending to have been
-            // cropped from as well as on the prompt.
-            var resolution = (options.Height, options.Width);
-            var contexts = new HostTensor[prompts.Length];
-            var addInputs = new HostTensor[prompts.Length];
-            for (int i = 0; i < prompts.Length; i++)
-            {
-                (float[] embeds, float[] pooled) = encoders.Encode(prompts[i], chunks);
-                contexts[i] = HostTensor.FromFloats(embeds, 1, 1, tokens, UNetModel.ContextWidth);
-                addInputs[i] = UNetModel.AddConditioning(pooled, resolution, (0, 0), resolution);
-            }
-            return new SdxlConditioning(contexts, addInputs, tokens);
+            (float[] embeds, float[] pooled) = encoders.Encode(request.Text, request.Length);
+            return new[] { embeds, pooled };
         }
 
         public void Dispose() => encoders.Dispose();

@@ -66,8 +66,9 @@ public sealed class SdxlTextEncoders : IDisposable
     /// <summary>How many 77-token chunks a prompt takes. The towers share a
     /// vocabulary and differ only in what they pad with, so one count is both
     /// towers' count.</summary>
-    public int ChunkCount(string prompt) =>
-        _towers[0].Tokenizer.EncodeChunks(PromptTags.Segments(prompt)).Count;
+    public static int ChunkCount(string prompt) =>
+        ClipTokenizer.For(ClipTextEncoder.Configs[0].PadToken)
+            .EncodeChunks(PromptTags.Segments(prompt)).Count;
 
     /// <summary>Returns (prompt embeddings [77 * chunks, 2048], pooled embedding
     /// [1280]). <paramref name="chunks"/> is a floor, for when another prompt in

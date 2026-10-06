@@ -35,12 +35,15 @@ internal static class GenerateCommand
         // is between them — the seconds it takes to build are the whole cost
         // of a step otherwise. Kept only for the run.
         using DenoiserCache? cache = runs.Count > 1 ? new DenoiserCache { Enabled = true } : null;
+        // And the negative prompt is the same text, encoded once.
+        PromptCache? prompts = runs.Count > 1 ? new PromptCache() : null;
         GenerationPipeline pipeline = ModelFamilies.PipelineFor(family);
         foreach ((StepRun step, GenerationOptions run) in runs)
         {
             string label = step.InSequence ? $"step {step.Index + 1}/{step.Count} " : "";
             ImageResult[] images = pipeline.Generate(device, run, step.Seeds,
-                new SynchronousProgress<Snapshot>(snapshot => Trace(label, snapshot)), cache: cache);
+                new SynchronousProgress<Snapshot>(snapshot => Trace(label, snapshot)), cache: cache,
+                prompts: prompts);
 
             for (int i = 0; i < images.Length; i++)
             {

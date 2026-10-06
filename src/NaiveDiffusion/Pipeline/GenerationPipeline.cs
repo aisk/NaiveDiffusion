@@ -41,9 +41,9 @@ public sealed class GenerationPipeline
     /// <summary>Run the whole pipeline for one image, seeded from the options.</summary>
     public ImageResult Generate(DmlDevice device, GenerationOptions options,
         IProgress<Snapshot>? progress = null, CancellationToken cancellation = default,
-        DenoiserCache? cache = null)
+        DenoiserCache? cache = null, PromptCache? prompts = null)
         => Generate(device, options, new[] { options.Seed }, progress, cancellation,
-            cache: cache)[0];
+            cache: cache, prompts: prompts)[0];
 
     /// <summary>Run the whole pipeline once per seed. Everything but the
     /// sampling is shared: the prompts are encoded once, the diffusion model is
@@ -57,11 +57,16 @@ public sealed class GenerationPipeline
     /// <paramref name="cache"/> extends that sharing past the end of the run:
     /// given one, the model is borrowed from it if a previous run left a
     /// matching one there, and offered back at the end. Without one the model
-    /// is built at the start and released before decoding.</summary>
+    /// is built at the start and released before decoding.
+    ///
+    /// <paramref name="prompts"/> does the same for the text side: given
+    /// one, a prompt an earlier run encoded with the same text encoder is
+    /// taken from it, and what this run encodes is left there. Without one
+    /// every run opens the text encoder.</summary>
     public ImageResult[] Generate(DmlDevice device, GenerationOptions options,
         IReadOnlyList<int> seeds, IProgress<Snapshot>? progress = null,
         CancellationToken cancellation = default, Action<int, ImageResult>? onImage = null,
-        DenoiserCache? cache = null)
+        DenoiserCache? cache = null, PromptCache? prompts = null)
     {
         if (seeds.Count == 0)
         {
@@ -83,22 +88,7 @@ public sealed class GenerationPipeline
         ImageResult[] results;
         try
         {
-            // Two stages for the text side: reading a large encoder's weights
-            // is seconds on its own, and the status should say so rather than
-            // claim the prompt is being encoded.
-            Report(Stage.LoadingTextEncoder);
-            Conditioning conditioning;
-            using (IPromptEncoder encoder = _family.Conditioner.Open(options))
-            {
-                cancellation.ThrowIfCancellationRequested();
-                Report(Stage.EncodingPrompt);
-                int branches = _family.Guidance.Branches(options.Guidance);
-                conditioning = encoder.Encode(options, branches).CheckedFor(branches);
-            }
-            ReleaseHostWeights();
-            // Sampled after every handover, where the interesting question is not
-            // how much a stage took but whether it gave it all back.
-            device.Sample("text encoders released");
+            Conditioning conditioning = Encode(device, options, prompts, Report, cancellation);
             cancellation.ThrowIfCancellationRequested();
 
             float[]? reference = null;
@@ -306,6 +296,59 @@ public sealed class GenerationPipeline
                 $"steps must be between 1 and {sampling.Levels.TrainTimesteps}");
         }
         return sampling;
+    }
+
+    /// <summary>The run's prompts as conditioning. Each text the
+    /// <paramref name="prompts"/> cache has from an earlier run is taken
+    /// from it, and the text encoder is opened only when one is missing —
+    /// not at all for a run that changed nothing the encoder reads.</summary>
+    private Conditioning Encode(DmlDevice device, GenerationOptions options, PromptCache? prompts,
+        Reporter report, CancellationToken cancellation)
+    {
+        IConditioner conditioner = _family.Conditioner;
+        int branches = _family.Guidance.Branches(options.Guidance);
+        IReadOnlyList<PromptRequest> requests = conditioner.Requests(options, branches);
+        string stamp = prompts is null ? "" : PromptCache.EncoderStamp(_family, options);
+        var encoded = new float[requests.Count][][];
+        for (int i = 0; i < encoded.Length; i++)
+        {
+            encoded[i] = prompts?.Find(new PromptCache.Key(stamp, requests[i]))!;
+        }
+
+        if (Array.TrueForAll(encoded, found => found is not null))
+        {
+            report(Stage.EncodingPrompt);
+            device.Sample("prompts reused");
+        }
+        else
+        {
+            // Two stages for the text side: reading a large encoder's weights
+            // is seconds on its own, and the status should say so rather than
+            // claim the prompt is being encoded.
+            report(Stage.LoadingTextEncoder);
+            using (IPromptEncoder encoder = conditioner.Open(options))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                report(Stage.EncodingPrompt);
+                for (int i = 0; i < encoded.Length; i++)
+                {
+                    if (encoded[i] is not null)
+                    {
+                        continue;
+                    }
+                    // The same text twice in one run — an empty prompt
+                    // against an empty negative — is encoded once.
+                    int earlier = requests.Take(i).ToList().IndexOf(requests[i]);
+                    encoded[i] = earlier >= 0 ? encoded[earlier] : encoder.Encode(requests[i]);
+                    prompts?.Add(new PromptCache.Key(stamp, requests[i]), encoded[i]);
+                }
+            }
+            ReleaseHostWeights();
+            // Sampled after every handover, where the interesting question is not
+            // how much a stage took but whether it gave it all back.
+            device.Sample("text encoders released");
+        }
+        return conditioner.Condition(options, encoded).CheckedFor(branches);
     }
 
     private (int Height, int Width, int Length) LatentShape(GenerationOptions options)

@@ -22,15 +22,36 @@ public abstract class Conditioning
     public abstract string Specialization { get; }
 }
 
+/// <summary>One text for a family's text encoder, and the length its output
+/// is brought to, in the family's own unit — SDXL's chunks, Anima's context
+/// rows — where the prompts of a run have to come out the same shape; 0
+/// where the family pads nothing at this point. The two together are what
+/// the encoder's output depends on besides the encoder itself, which is
+/// what lets a <see cref="PromptCache"/> keep it.</summary>
+public readonly record struct PromptRequest(string Text, int Length);
+
 /// <summary>Prompt in, conditioning out — the text side of one model family,
-/// in two steps so that the pipeline can say which one it is in: reading the
-/// text encoder's weights off the files takes seconds — Qwen3-VL-8B is
-/// sixteen gigabytes — and is not the same wait as running it.</summary>
+/// in steps so that the pipeline can say which one it is in — reading the
+/// text encoder's weights off the files takes seconds, Qwen3-VL-8B being
+/// sixteen gigabytes, and is not the same wait as running it — and can skip
+/// the encoder altogether for prompts it has encoded before.</summary>
 public interface IConditioner
 {
+    /// <summary>The texts a run encodes, the negative prompt's first when
+    /// there are two branches and only the prompt's when there is one. From
+    /// the tokenizers alone; no weight is read.</summary>
+    IReadOnlyList<PromptRequest> Requests(GenerationOptions options, int branches);
+
     /// <summary>Read the text encoder's weights for this run; nothing is
     /// encoded yet. Disposed by the caller once the prompts are.</summary>
     IPromptEncoder Open(GenerationOptions options);
+
+    /// <summary>The conditioning out of the encoder's output for each of
+    /// <see cref="Requests"/>, in the same order, with whatever else the
+    /// denoiser reads that follows from the run rather than the text — the
+    /// image size, the compute precision. Reads the arrays and keeps none
+    /// of them.</summary>
+    Conditioning Condition(GenerationOptions options, IReadOnlyList<float[][]> encoded);
 
     /// <summary>Whether the denoiser's conditioning is a plain sequence of
     /// context rows that can be handed over as numbers, with no text
@@ -47,25 +68,32 @@ public interface IConditioner
     Conditioning FromContextRows(GenerationOptions options, float[] values);
 }
 
-/// <summary>A loaded text encoder: the run's prompts in, the conditioning
-/// the denoiser reads out.</summary>
+/// <summary>A loaded text encoder: one text in, what the encoder makes of
+/// it out.</summary>
 public interface IPromptEncoder : IDisposable
 {
-    /// <summary>The conditioning for <paramref name="branches"/> branches:
-    /// the negative prompt's first when there are two, the prompt's own
-    /// last, and only the prompt's when there is one.</summary>
-    Conditioning Encode(GenerationOptions options, int branches);
+    /// <summary>The encoder's output for one text, as the arrays the
+    /// family's <see cref="IConditioner.Condition"/> reads: a function of
+    /// the request and of the encoder, and of nothing else.</summary>
+    float[][] Encode(PromptRequest request);
 }
 
 public static class Conditioners
 {
+    /// <summary>The prompts a run encodes, the negative first when there
+    /// are two branches.</summary>
+    public static string[] Prompts(GenerationOptions options, int branches) => branches > 1
+        ? new[] { options.Negative, options.Prompt }
+        : new[] { options.Prompt };
+
     /// <summary>Open, encode and release in one call, for a caller with no
     /// progress to report between the two.</summary>
     public static Conditioning Encode(this IConditioner conditioner, GenerationOptions options,
         int branches)
     {
         using IPromptEncoder encoder = conditioner.Open(options);
-        return encoder.Encode(options, branches);
+        return conditioner.Condition(options, conditioner.Requests(options, branches)
+            .Select(encoder.Encode).ToArray());
     }
 
     /// <summary>The branch count a run wants is 1 or 2, and what the

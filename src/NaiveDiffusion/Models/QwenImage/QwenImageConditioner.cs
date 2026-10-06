@@ -100,6 +100,14 @@ public sealed class QwenImageConditioner : IConditioner
             ?? throw new ArgumentException("Qwen-Image needs its text encoder file"),
             options.Loras));
 
+    /// <summary>Each prompt is encoded at its own length; the branches are
+    /// padded to one another when the conditioning is put together.</summary>
+    public IReadOnlyList<PromptRequest> Requests(GenerationOptions options, int branches) =>
+        Conditioners.Prompts(options, branches).Select(prompt => new PromptRequest(prompt, 0)).ToArray();
+
+    public Conditioning Condition(GenerationOptions options, IReadOnlyList<float[][]> encoded) =>
+        Conditioning(encoded.Select(rows => rows[0]).ToArray(), QwenImageTextEncoder.Width, options);
+
     public bool TakesContextRows => true;
 
     /// <summary>One branch from rows at the width this checkpoint's text
@@ -129,16 +137,7 @@ public sealed class QwenImageConditioner : IConditioner
 
     private sealed class Encoder(QwenImageTextEncoder encoder) : IPromptEncoder
     {
-        public Conditioning Encode(GenerationOptions options, int branches)
-        {
-            var contexts = new List<float[]>();
-            if (branches > 1)
-            {
-                contexts.Add(encoder.Encode(options.Negative));
-            }
-            contexts.Add(encoder.Encode(options.Prompt));
-            return Conditioning(contexts, QwenImageTextEncoder.Width, options);
-        }
+        public float[][] Encode(PromptRequest request) => new[] { encoder.Encode(request.Text) };
 
         public void Dispose() => encoder.Dispose();
     }

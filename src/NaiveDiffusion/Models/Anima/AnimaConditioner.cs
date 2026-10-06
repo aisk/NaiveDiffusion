@@ -1,5 +1,7 @@
 using NaiveDiffusion.Pipeline;
 using NaiveDiffusion.Tensors;
+using NaiveDiffusion.Text.Qwen;
+using NaiveDiffusion.Text.T5;
 
 namespace NaiveDiffusion.Models.Anima;
 
@@ -41,6 +43,23 @@ public sealed class AnimaConditioner : IConditioner
             ?? throw new ArgumentException("Anima needs its text encoder file"),
             options.Loras));
 
+    /// <summary>Past 512 tokens a prompt sets the context length; the other
+    /// branch is padded to match, so both attend against the same graphs.</summary>
+    public IReadOnlyList<PromptRequest> Requests(GenerationOptions options, int branches)
+    {
+        string[] prompts = Conditioners.Prompts(options, branches);
+        int rows = prompts.Max(prompt => AnimaTextEncoder.ContextRows(
+            AnimaPrompt.Tokenize(prompt, Qwen2Tokenizer.Shared, T5Tokenizer.Shared)));
+        return prompts.Select(prompt => new PromptRequest(prompt, rows)).ToArray();
+    }
+
+    public Conditioning Condition(GenerationOptions options, IReadOnlyList<float[][]> encoded)
+    {
+        int rows = encoded[0][0].Length / LlmAdapter.Width;
+        return new AnimaConditioning(encoded.Select(context =>
+            HostTensor.FromFloats(context[0], 1, 1, rows, LlmAdapter.Width)).ToArray(), rows);
+    }
+
     public bool TakesContextRows => true;
 
     /// <summary>One branch from the adapter's rows, padded with zeros to
@@ -60,17 +79,8 @@ public sealed class AnimaConditioner : IConditioner
 
     private sealed class Encoder(AnimaTextEncoder encoder) : IPromptEncoder
     {
-        public Conditioning Encode(GenerationOptions options, int branches)
-        {
-            // Past 512 tokens a prompt sets the context length; the other branch
-            // is padded to match, so both attend against the same graphs.
-            string[] prompts = branches > 1
-                ? new[] { options.Negative, options.Prompt }
-                : new[] { options.Prompt };
-            int rows = prompts.Max(prompt => AnimaTextEncoder.ContextRows(encoder.Tokenize(prompt)));
-            return new AnimaConditioning(prompts.Select(prompt =>
-                HostTensor.FromFloats(encoder.Encode(prompt, rows), 1, 1, rows, LlmAdapter.Width)).ToArray(), rows);
-        }
+        public float[][] Encode(PromptRequest request) =>
+            new[] { encoder.Encode(request.Text, request.Length) };
 
         public void Dispose() => encoder.Dispose();
     }
