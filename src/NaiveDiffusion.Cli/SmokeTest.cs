@@ -14,6 +14,8 @@ public static class SmokeTest
 
     public static int Run(DmlDevice device)
     {
+        // First, while nothing has run on the device yet.
+        RmsNormHalfRepeats(device);
         Gemm(device);
         GemmBroadcastWeight(device);
         ScaleBiasAndArithmetic(device);
@@ -618,6 +620,28 @@ public static class SmokeTest
             for (int i = 0; i < 4; i++) expected[row * 4 + i] = data[row * 4 + i] * scale * weight[i];
         }
         Check("rms norm (half)", outputs[0].ToFloats(), expected, 1e-2f);
+    }
+
+    /// <summary>The half-precision RMSNorm dispatched twice on the same
+    /// input, the first time being the first thing the device runs. A
+    /// driver has rounded the first dispatch of a shader in a process
+    /// differently from every later one, which made the first step of the
+    /// first image differ from the same step of the second; the two have
+    /// to agree to the bit. Enough values for a last-bit difference to show.</summary>
+    private static void RmsNormHalfRepeats(DmlDevice device)
+    {
+        const int tokens = 256, heads = 16, dim = 128;
+        using var model = new ModelBuilder(device, HostDataType.Float16);
+        DmlExpression x = model.Placeholder(new[] { 1, tokens, heads, dim });
+        model.Compile(new[]
+        {
+            Layers.Cast(Layers.RmsNorm(model, x, HostTensor.FromFloats(Draw(12, dim, 0.8f), dim), 1e-6f),
+                HostDataType.Float32),
+        });
+        HostTensor input = HostTensor.FromFloats(Draw(11, tokens * heads * dim, 6f), 1, tokens, heads, dim);
+        float[] first = model.Run(input)[0].ToFloats();
+        float[] second = model.Run(input)[0].ToFloats();
+        Check("rms norm (half), first dispatch against the second", first, second, 0f);
     }
 
     /// <summary>The second mean-variance normalization: RMS normalization with

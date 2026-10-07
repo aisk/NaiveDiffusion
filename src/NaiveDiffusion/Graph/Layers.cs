@@ -198,11 +198,27 @@ public static class Layers
 
     /// <summary>RMSNorm over the last axis: x / sqrt(mean(x²) + ε), times a
     /// per-feature weight when one is given — one mean-variance normalization
-    /// that leaves the mean out, the weight as its scale.</summary>
+    /// that leaves the mean out, the weight as its scale. At half precision
+    /// the weight is multiplied in after the operator instead: with the
+    /// scale inside, the first dispatch a process makes of that shader came
+    /// back rounded differently from every later one on an AMD driver — a
+    /// quarter of the values a last bit lower — so the first forward pass
+    /// after start-up was not the pass the same inputs gave from then on.
+    /// The product outside is those later values to the bit, first time
+    /// included.</summary>
     public static DmlExpression RmsNorm(ModelBuilder model, DmlExpression x,
-        HostTensor? weight, float epsilon) =>
-        DmlOps.MeanVarianceNormalization2(x, new[] { x.Shape.Length - 1 }, false, epsilon,
-            weight is null ? null : FeatureConstant(model, weight, x));
+        HostTensor? weight, float epsilon)
+    {
+        int[] axes = { x.Shape.Length - 1 };
+        if (weight is null)
+        {
+            return DmlOps.MeanVarianceNormalization2(x, axes, false, epsilon);
+        }
+        DmlExpression scale = FeatureConstant(model, weight, x);
+        return x.Desc.DataType == TensorDataType.Float16
+            ? DmlOps.MeanVarianceNormalization2(x, axes, false, epsilon) * Broadcast(scale, x.Shape)
+            : DmlOps.MeanVarianceNormalization2(x, axes, false, epsilon, scale);
+    }
 
     /// <summary>LayerNorm over the last axis without an affine: what a DiT
     /// modulates with its own shift and scale.</summary>
