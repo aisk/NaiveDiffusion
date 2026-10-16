@@ -8,8 +8,8 @@ namespace NaiveDiffusion.Pipeline;
 
 /// <summary>A recipe kept under a name: what an image is asked for, without
 /// the machine it is asked of. The prompts, the model with its extra files
-/// and the LoRAs, the size, the sampler settings, the clip skip, the seed and
-/// the reference strength travel; the
+/// and the LoRAs, the size, the sampler settings, the clip skip, the seed with
+/// its variation and the reference strength travel; the
 /// device, the memory switches and the batch count stay where they are, since
 /// swapping recipes should not swap graphics cards.
 ///
@@ -45,6 +45,8 @@ public sealed record Preset
     public SamplerKind Sampler { get; set; } = SamplerKind.Euler;
     public ScheduleKind Schedule { get; set; } = ScheduleKind.Leading;
     public int Seed { get; set; }
+    public int VariationSeed { get; set; }
+    public float VariationStrength { get; set; }
     public float Strength { get; set; } = 0.65f;
     public int ClipSkip { get; set; } = GenerationOptions.DefaultClipSkip;
 

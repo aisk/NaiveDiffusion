@@ -16,6 +16,21 @@ public sealed record GenerationOptions
     public int Steps { get; init; } = 20;
     public float Guidance { get; init; } = 5.0f;
     public int Seed { get; init; }
+
+    /// <summary>A second seed whose noise the starting noise is turned
+    /// toward by <see cref="VariationStrength"/>, A1111's variation seed.
+    /// The same for every image of a run; each image keeps its own seed.</summary>
+    public int VariationSeed { get; init; }
+
+    /// <summary>How far toward <see cref="VariationSeed"/>'s noise, in
+    /// [0, 1]: 0 is off and leaves the image exactly as it was, up to
+    /// about 0.3 keeps the composition and changes the details, and 1
+    /// starts from the variation seed's noise. Only the starting noise
+    /// moves; what an ancestral sampler adds along the way stays the
+    /// seed's, so 1 is the variation seed's own image only under a
+    /// sampler that adds none.</summary>
+    public float VariationStrength { get; init; }
+
     public SamplerKind Sampler { get; init; } = SamplerKind.Euler;
     public ScheduleKind Schedule { get; init; } = ScheduleKind.Leading;
 

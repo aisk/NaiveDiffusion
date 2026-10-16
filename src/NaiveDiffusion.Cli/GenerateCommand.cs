@@ -18,6 +18,7 @@ internal static class GenerateCommand
         "--steps", "--seed", "--count", "--guidance", "--sampler", "--schedule", "--out",
         "--denoiser-vram", "--weights", "--compute", "--image", "--strength", "--lora",
         "--lora-dir", "--clip-skip", "--step", "--step-seeds",
+        "--variation-seed", "--variation-strength",
     }.Concat(SnippetOptions.ValueOptions)
      .Concat(CommandLine.ComponentOptions()).ToArray();
 
@@ -102,6 +103,7 @@ internal static class GenerateCommand
         };
         options = line.DenoiserMemory(options, family);
         options = Reference(line, options);
+        options = Variation(line, options);
         options = line.Loras(options);
 
         int count = line.Int("--count", 1);
@@ -250,6 +252,37 @@ internal static class GenerateCommand
                 Pixels.Resample(image.Rgb24, image.Width, image.Height,
                     options.Width, options.Height)),
             Strength = strength,
+        };
+    }
+
+    /// <summary>--variation-strength: how far each image's starting noise
+    /// is turned toward --variation-seed's. The two come together: a seed
+    /// without a strength changes nothing, and a strength without a seed
+    /// would turn toward seed 0, which is the image's own at --seed 0.</summary>
+    private static GenerationOptions Variation(CommandLine line, GenerationOptions options)
+    {
+        bool seed = line.Value("--variation-seed") is not null;
+        bool strength = line.Value("--variation-strength") is not null;
+        if (seed != strength)
+        {
+            return CommandLine.Fail<GenerationOptions>(seed
+                ? "--variation-seed needs --variation-strength"
+                : "--variation-strength needs --variation-seed");
+        }
+        if (!seed)
+        {
+            return options;
+        }
+        float amount = line.Float("--variation-strength", 0);
+        if (!(amount >= 0.0f) || amount > 1.0f)
+        {
+            return CommandLine.Fail<GenerationOptions>(
+                $"--variation-strength {amount}: between 0 and 1");
+        }
+        return options with
+        {
+            VariationSeed = line.Seed("--variation-seed"),
+            VariationStrength = amount,
         };
     }
 

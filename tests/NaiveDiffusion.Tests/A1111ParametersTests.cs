@@ -95,4 +95,22 @@ public class A1111ParametersTests
         Assert.That(A1111Parameters.Format(options with { ReferenceImage = null }, 1, SdxlFamily.Instance),
             Does.Not.Contain("Denoising"));
     }
+
+    [Test]
+    [SetCulture("de-DE")]
+    public void AVariationRecordsItsSeedAndStrengthUnderA1111sKeys()
+    {
+        var options = new GenerationOptions
+        {
+            CheckpointPath = "m.safetensors",
+            VariationSeed = 42,
+            VariationStrength = 0.25f,
+        };
+        Assert.That(A1111Parameters.Format(options, 1, SdxlFamily.Instance),
+            Does.Contain(", Seed: 1, Size: 1024x1024, Model: m, Variation seed: 42, Variation seed strength: 0.25,"));
+        Assert.That(A1111Parameters.Format(options with { VariationStrength = 0.125f }, 1, SdxlFamily.Instance),
+            Does.Contain("Variation seed strength: 0.125,"));
+        Assert.That(A1111Parameters.Format(options with { VariationStrength = 0 }, 1, SdxlFamily.Instance),
+            Does.Not.Contain("Variation"));
+    }
 }

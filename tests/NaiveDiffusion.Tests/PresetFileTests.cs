@@ -46,6 +46,8 @@ public class PresetFileTests
         Sampler = SamplerKind.DpmPlusPlus2MSde,
         Schedule = ScheduleKind.Karras,
         Seed = 12345,
+        VariationSeed = 678,
+        VariationStrength = 0.15f,
         Strength = 0.4f,
         ClipSkip = 1,
         Sequence = new[] { "sitting at desk", "standing up", "walking out" },

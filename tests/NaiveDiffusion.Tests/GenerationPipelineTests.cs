@@ -227,6 +227,15 @@ public class GenerationPipelineTests
             Throws.Nothing);
         Assert.That(() => QwenImage.Prepare(QwenImageOptions() with { DenoiserWeights = WeightStorage.Int8 }),
             Throws.Nothing);
+
+        // A variation is every family's, between none and all of the way.
+        Assert.That(() => Anima.Prepare(AnimaOptions() with { VariationSeed = 3, VariationStrength = 1 }),
+            Throws.Nothing);
+        foreach (float strength in new[] { -0.1f, 1.1f, float.NaN })
+        {
+            Assert.That(() => Sdxl.Prepare(SdxlOptions() with { VariationStrength = strength }),
+                Throws.ArgumentException.With.Message.Contains("variation"));
+        }
     }
 
     [Test]

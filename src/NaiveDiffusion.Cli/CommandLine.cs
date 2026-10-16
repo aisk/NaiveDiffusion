@@ -348,12 +348,13 @@ internal sealed class CommandLine
             : Explain(report));
     }
 
-    /// <summary>--seed, which the generator takes the magnitude of: a
-    /// negative one would sample what its positive twin does.</summary>
-    public int Seed()
+    /// <summary>--seed, or another option naming a seed, which the
+    /// generator takes the magnitude of: a negative one would sample what
+    /// its positive twin does.</summary>
+    public int Seed(string option = "--seed")
     {
-        int seed = Int("--seed", 0);
-        return seed >= 0 ? seed : Fail<int>($"--seed {seed}: 0 or above");
+        int seed = Int(option, 0);
+        return seed >= 0 ? seed : Fail<int>($"{option} {seed}: 0 or above");
     }
 
     /// <summary>The pipeline's own check of a run, before anything is

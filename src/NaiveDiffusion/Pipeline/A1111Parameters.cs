@@ -46,6 +46,9 @@ public static class A1111Parameters
             .Append($", Size: {options.Width}x{options.Height}")
             .Append($", Model: {Path.GetFileNameWithoutExtension(options.CheckpointPath)}")
             .Append(NamedComponents(options, family.Components))
+            .Append(options.VariationStrength > 0
+                ? Invariant($", Variation seed: {options.VariationSeed}, Variation seed strength: {options.VariationStrength:0.###}")
+                : "")
             // Written even at 2: it is the default here and not in A1111,
             // and a reader that sees no key assumes 1. Not written for a
             // family whose text side has no such setting.

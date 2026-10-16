@@ -158,6 +158,10 @@ public sealed class GenerationPipeline
         {
             throw new ArgumentException("strength must be above 0 and at most 1");
         }
+        if (!(options.VariationStrength >= 0.0f) || options.VariationStrength > 1.0f)
+        {
+            throw new ArgumentException("the variation strength must be between 0 and 1");
+        }
         if (!_family.SupportsSchedule(options.Schedule))
         {
             throw new ArgumentException(
@@ -533,6 +537,14 @@ public sealed class GenerationPipeline
         scheduler.SetTimesteps(options.Steps);
 
         float[] latents = noise.Fill(latentLength);
+        if (options.VariationStrength > 0)
+        {
+            // The variation seed's noise comes from a stream of its own, so
+            // the seed's stream goes on to the sampler where it would have.
+            latents = NoiseVariation.Slerp(latents,
+                new GaussianGenerator(options.VariationSeed).Fill(latentLength),
+                options.VariationStrength);
+        }
         if (reference is null)
         {
             for (int i = 0; i < latents.Length; i++)

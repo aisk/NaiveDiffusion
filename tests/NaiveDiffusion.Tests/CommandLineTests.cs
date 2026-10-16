@@ -208,6 +208,17 @@ public class CommandLineTests
             Throws.TypeOf<UsageException>().With.Message.Contains("--count"));
         Assert.That(() => Read(sdxl, "--seed", "-5"),
             Throws.TypeOf<UsageException>().With.Message.Contains("--seed"));
+        Assert.That(() => Read(sdxl, "--variation-seed", "7"),
+            Throws.TypeOf<UsageException>().With.Message.Contains("--variation-strength"));
+        Assert.That(() => Read(sdxl, "--variation-strength", "0.2"),
+            Throws.TypeOf<UsageException>().With.Message.Contains("--variation-seed"));
+        Assert.That(() => Read(sdxl, "--variation-strength", "1.5", "--variation-seed", "7"),
+            Throws.TypeOf<UsageException>().With.Message.Contains("--variation-strength"));
+        Assert.That(() => Read(sdxl, "--variation-strength", "0.2", "--variation-seed", "-1"),
+            Throws.TypeOf<UsageException>().With.Message.Contains("--variation-seed"));
+        GenerationOptions varied = Read(sdxl, "--variation-strength", "0.2", "--variation-seed", "7")
+            .Runs[0].Options;
+        Assert.That((varied.VariationSeed, varied.VariationStrength), Is.EqualTo((7, 0.2f)));
 
         // Qwen-Image is a family of its own on the command line, with its
         // own two files; Anima's are refused for it with the part's name.

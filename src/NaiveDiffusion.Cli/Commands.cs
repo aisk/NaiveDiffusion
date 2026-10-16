@@ -54,7 +54,7 @@ internal static class Commands
             (device, line) => DenoiseCommand.Run(device!, line)),
         new Command("generate",
             "generate <prompt> [--negative text] [--size n | --width n --height n] " +
-            "[--steps n] [--seed n] [--count n] " +
+            "[--steps n] [--seed n] [--count n] [--variation-seed n] [--variation-strength 0..1] " +
             "[--guidance g] [--sampler euler|euler-a|dpmpp-2m|dpmpp-2m-sde] " +
             "[--schedule leading|linspace|karras|exponential|ays] [--clip-skip n] [--out file] " +
             CommandLine.ComponentUsage() + " [--denoiser-vram MiB|auto] [--weights fp16|int8] " +
