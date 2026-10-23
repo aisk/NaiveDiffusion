@@ -63,12 +63,12 @@ public static class ModelFamilies
 
     public static GenerationPipeline PipelineFor(IModelFamily family) => Pipelines[family];
 
-    /// <inheritdoc cref="GenerationPipeline.Generate(DmlDevice, GenerationOptions, IReadOnlyList{int}, IProgress{Snapshot}?, CancellationToken, Action{int, ImageResult}?, DenoiserCache?, PromptCache?)"/>
+    /// <inheritdoc cref="GenerationPipeline.Generate(DmlDevice, GenerationOptions, IReadOnlyList{int}, IProgress{Snapshot}?, CancellationToken, Action{int, ImageResult}?, DenoiserCache?, PromptCache?, ImageSkip?)"/>
     /// <remarks>Through the family the checkpoint's header names.</remarks>
     public static ImageResult[] Generate(DmlDevice device, GenerationOptions options,
         IReadOnlyList<int> seeds, IProgress<Snapshot>? progress = null,
         CancellationToken cancellation = default, Action<int, ImageResult>? onImage = null,
-        DenoiserCache? cache = null, PromptCache? prompts = null)
+        DenoiserCache? cache = null, PromptCache? prompts = null, ImageSkip? skip = null)
     {
         if (!File.Exists(options.CheckpointPath))
         {
@@ -76,10 +76,10 @@ public static class ModelFamilies
                 GenerationPipeline.NoCheckpointMessage, options.CheckpointPath);
         }
         return PipelineFor(Require(options.CheckpointPath))
-            .Generate(device, options, seeds, progress, cancellation, onImage, cache, prompts);
+            .Generate(device, options, seeds, progress, cancellation, onImage, cache, prompts, skip);
     }
 
-    /// <inheritdoc cref="Generate(DmlDevice, GenerationOptions, IReadOnlyList{int}, IProgress{Snapshot}?, CancellationToken, Action{int, ImageResult}?, DenoiserCache?, PromptCache?)"/>
+    /// <inheritdoc cref="Generate(DmlDevice, GenerationOptions, IReadOnlyList{int}, IProgress{Snapshot}?, CancellationToken, Action{int, ImageResult}?, DenoiserCache?, PromptCache?, ImageSkip?)"/>
     public static ImageResult Generate(DmlDevice device, GenerationOptions options,
         IProgress<Snapshot>? progress = null, CancellationToken cancellation = default,
         DenoiserCache? cache = null, PromptCache? prompts = null)

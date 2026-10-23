@@ -62,11 +62,17 @@ public sealed class GenerationPipeline
     /// <paramref name="prompts"/> does the same for the text side: given
     /// one, a prompt an earlier run encoded with the same text encoder is
     /// taken from it, and what this run encodes is left there. Without one
-    /// every run opens the text encoder.</summary>
+    /// every run opens the text encoder.
+    ///
+    /// <paramref name="skip"/> lets the caller drop the image being sampled
+    /// and carry on with the next seed. A skipped image is never decoded and
+    /// is missing from the result, which holds the finished images in seed
+    /// order; <paramref name="onImage"/> still names each by its seed's
+    /// index.</summary>
     public ImageResult[] Generate(DmlDevice device, GenerationOptions options,
         IReadOnlyList<int> seeds, IProgress<Snapshot>? progress = null,
         CancellationToken cancellation = default, Action<int, ImageResult>? onImage = null,
-        DenoiserCache? cache = null, PromptCache? prompts = null)
+        DenoiserCache? cache = null, PromptCache? prompts = null, ImageSkip? skip = null)
     {
         if (seeds.Count == 0)
         {
@@ -101,14 +107,15 @@ public sealed class GenerationPipeline
                 cancellation.ThrowIfCancellationRequested();
             }
 
-            float[][] sampled = Sample(device, options, sampling, seeds, conditioning, reference,
-                cache, Report, cancellation);
+            float[]?[] sampled = Sample(device, options, sampling, seeds, conditioning, reference,
+                cache, skip, Report, cancellation);
 
             cancellation.ThrowIfCancellationRequested();
             results = Decode(device, options, sampled, Report, cancellation, onImage);
         }
         finally
         {
+            skip?.Clear();
             // The pool keeps the last dispatch's scratch — a decoded tile's, a
             // gigabyte and a half, or several without tiling — until something
             // asks for another size. A device can outlive the run, and an
@@ -423,10 +430,11 @@ public sealed class GenerationPipeline
 
     /// <summary>Sample one latent per seed, all through the same model. With a
     /// <paramref name="reference"/> latent every seed starts from it, noised to
-    /// the level the strength picks, rather than from noise alone.</summary>
-    private float[][] Sample(DmlDevice device, GenerationOptions options,
+    /// the level the strength picks, rather than from noise alone. A skipped
+    /// seed's slot is null.</summary>
+    private float[]?[] Sample(DmlDevice device, GenerationOptions options,
         ModelSampling sampling, IReadOnlyList<int> seeds, Conditioning conditioning,
-        float[]? reference, DenoiserCache? cache, Reporter report,
+        float[]? reference, DenoiserCache? cache, ImageSkip? skip, Reporter report,
         CancellationToken cancellation)
     {
         (int latentHeight, int latentWidth, int latentLength) = LatentShape(options);
@@ -482,12 +490,14 @@ public sealed class GenerationPipeline
         bool broken = false;
         try
         {
-            var sampled = new float[seeds.Count][];
+            var sampled = new float[]?[seeds.Count];
             for (int image = 0; image < seeds.Count; image++)
             {
+                // Only a request made while this image samples is about it.
+                skip?.Clear();
                 sampled[image] = SampleOne(denoiser, options, sampling, seeds[image],
                     conditioning, reference, latentHeight, latentWidth, latentLength, image,
-                    report, cancellation);
+                    skip, report, cancellation);
             }
             return sampled;
         }
@@ -520,11 +530,12 @@ public sealed class GenerationPipeline
 
     /// <summary>One image's sampling loop: the starting latent from the seed,
     /// then every step of the schedule, the denoiser run once per guidance
-    /// branch and the branches combined before the sampler steps.</summary>
-    private float[] SampleOne(IDenoiser denoiser, GenerationOptions options,
+    /// branch and the branches combined before the sampler steps. Null when
+    /// the image was skipped partway.</summary>
+    private float[]? SampleOne(IDenoiser denoiser, GenerationOptions options,
         ModelSampling sampling, int seed, Conditioning conditioning, float[]? reference,
-        int latentHeight, int latentWidth, int latentLength, int image, Reporter report,
-        CancellationToken cancellation)
+        int latentHeight, int latentWidth, int latentLength, int image, ImageSkip? skip,
+        Reporter report, CancellationToken cancellation)
     {
         LatentSpace latent = _family.Codec.Latent;
         GuidanceStrategy guidance = _family.Guidance;
@@ -567,6 +578,10 @@ public sealed class GenerationPipeline
         for (int step = 0; step < scheduler.StepCount; step++)
         {
             cancellation.ThrowIfCancellationRequested();
+            if (skip?.Take() == true)
+            {
+                return null;
+            }
             report(Stage.Sampling, step, scheduler.StepCount, image);
 
             float[] modelInput = scheduler.ScaleModelInput(latents, step);
@@ -579,6 +594,10 @@ public sealed class GenerationPipeline
                 if (branch > 0)
                 {
                     cancellation.ThrowIfCancellationRequested();
+                    if (skip?.Take() == true)
+                    {
+                        return null;
+                    }
                 }
                 predictions[branch] = denoiser.Predict(latentTensor, timestep,
                     scheduler.Sigmas[step], conditioning.Branch(branch)).ToFloats();
@@ -598,12 +617,17 @@ public sealed class GenerationPipeline
         return latents;
     }
 
-    /// <summary>Every sampled latent through the VAE decoder, in order.</summary>
+    /// <summary>Every sampled latent through the VAE decoder, in order,
+    /// passing over the skipped ones.</summary>
     private ImageResult[] Decode(DmlDevice device, GenerationOptions options,
-        float[][] sampled, Reporter report, CancellationToken cancellation,
+        float[]?[] sampled, Reporter report, CancellationToken cancellation,
         Action<int, ImageResult>? onImage)
     {
-        var results = new ImageResult[sampled.Length];
+        var results = new List<ImageResult>(sampled.Length);
+        if (sampled.All(latent => latent is null))
+        {
+            return [];
+        }
         ILatentDecoder? decoder = null;
         try
         {
@@ -613,11 +637,16 @@ public sealed class GenerationPipeline
             decoder = _family.Codec.OpenDecoder(device, options);
             for (int image = 0; image < sampled.Length; image++)
             {
+                if (sampled[image] is not float[] latent)
+                {
+                    continue;
+                }
                 cancellation.ThrowIfCancellationRequested();
                 report(Stage.Decoding, 0, 0, image);
-                results[image] = new ImageResult(options.Width, options.Height,
-                    Pixels.ToRgb24(decoder.Decode(sampled[image]), options.Height, options.Width));
-                onImage?.Invoke(image, results[image]);
+                var result = new ImageResult(options.Width, options.Height,
+                    Pixels.ToRgb24(decoder.Decode(latent), options.Height, options.Width));
+                results.Add(result);
+                onImage?.Invoke(image, result);
             }
         }
         finally
@@ -626,6 +655,6 @@ public sealed class GenerationPipeline
             ReleaseHostWeights();
             device.Sample("decoder released");
         }
-        return results;
+        return results.ToArray();
     }
 }
